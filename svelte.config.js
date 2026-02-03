@@ -77,6 +77,11 @@ const config = {
 			strict: true
 		}),
 
+		// CDN configuration for production assets
+		paths: {
+			assets: process.env.NODE_ENV === 'production' ? 'https://assets.zapstore.dev' : ''
+		},
+
 		alias: {
 			$lib: './src/lib',
 			$components: './src/lib/components',
