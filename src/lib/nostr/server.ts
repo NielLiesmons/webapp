@@ -179,37 +179,6 @@ export async function fetchAppsByReleases(
 }
 
 /**
- * Fetch all apps by iterating through all releases.
- * Used for prerendering the initial page.
- */
-export async function fetchAllApps(): Promise<App[]> {
-	console.log('[Server] Fetching all apps via releases...');
-
-	const allApps: App[] = [];
-	const seenApps = new Set<string>();
-	let cursor: number | undefined = undefined;
-
-	// Paginate through all releases
-	while (true) {
-		const { apps, nextCursor } = await fetchAppsByReleases(100, cursor);
-
-		for (const app of apps) {
-			const key = `${app.pubkey}:${app.dTag}`;
-			if (!seenApps.has(key)) {
-				seenApps.add(key);
-				allApps.push(app);
-			}
-		}
-
-		if (nextCursor === null) break;
-		cursor = nextCursor;
-	}
-
-	console.log(`[Server] Total apps discovered: ${allApps.length}`);
-	return allApps;
-}
-
-/**
  * Fetch a specific app by pubkey and identifier
  */
 export async function fetchApp(
