@@ -1333,20 +1333,18 @@ When a scroll container extends beyond its parent (using negative margins with m
 
 ### Location
 
-**Component file**: `src/lib/components/Timestamp.svelte`
+**Component file**: `src/lib/components/common/Timestamp.svelte`
 
 ### Display Logic
 
 The `Timestamp` component uses this unified logic for displaying times:
 
-| Time Difference | Display Format | Example |
-|-----------------|----------------|---------|
-| < 1 minute | "now" | now |
-| < 1 hour | "Xm ago" | 5m ago |
-| < 24 hours | "Xh ago" | 3h ago |
-| < 7 days | "Xd ago" | 2d ago |
-| Same year | "Mon DD" | Jan 15 |
-| Different year | "Mon DD, YYYY" | Jan 15, 2024 |
+| Time | Display | Example |
+|------|---------|---------|
+| &lt; 1 minute | Just Now | Just Now |
+| Today | Today HH:MM | Today 14:30 |
+| Yesterday | Yesterday | Yesterday |
+| Older | Mon D | Jan 21 |
 
 ### Props
 

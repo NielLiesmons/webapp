@@ -1,11 +1,12 @@
 <script lang="ts">
   /**
-   * ZapSliderModal - Full zap flow: slider amount + comment, then invoice QR, then success.
+   * ZapSliderModal - Full zap flow: slider amount + comment, then invoice QR + copy + open in wallet, then success.
+   * Aligned with local-first ARCHITECTURE; invoice from LNURL, receipt via relay subscription + EventStore.
    */
   import { onDestroy } from "svelte";
-  import { Loader2, AlertCircle, CheckCircle, Copy, Check } from "lucide-svelte";
+  import { Loader2, AlertCircle, CheckCircle, Copy, Check, ExternalLink } from "lucide-svelte";
   import { createZap, subscribeToZapReceipt } from "$lib/nostr";
-  import { getIsSignedIn, getIsConnecting, connect } from "$lib/stores/auth.svelte";
+  import { getIsSignedIn, getIsConnecting, connect, signEvent } from "$lib/stores/auth.svelte";
   import Modal from "$lib/components/common/Modal.svelte";
   import ZapSlider from "./ZapSlider.svelte";
   import Zap from "$lib/components/icons/Zap.svelte";
@@ -48,7 +49,11 @@
     onzapReceived,
   }: Props = $props();
 
-  let sliderComponent = $state<{ getValue: () => number; getMessage: () => string } | null>(null);
+  let sliderComponent = $state<{
+    getValue: () => number;
+    getMessage: () => string;
+    getSerializedContent?: () => { text: string; emojiTags: { shortcode: string; url: string }[]; mentions: string[] };
+  } | null>(null);
   let zapValue = $state(100);
   let message = $state("");
   let loading = $state(false);
@@ -61,6 +66,7 @@
   let waitingForReceipt = $state(false);
   let showManualClose = $state(false);
   let receiptTimeout: ReturnType<typeof setTimeout> | null = null;
+  let lastEmojiTags = $state<{ shortcode: string; url: string }[]>([]);
 
   const isConnected = $derived(getIsSignedIn());
   const isConnecting = $derived(getIsConnecting());
@@ -115,6 +121,7 @@
   }) {
     zapValue = e.amount;
     message = e.message;
+    lastEmojiTags = e.emojiTags ?? [];
     handleZap();
   }
 
@@ -131,7 +138,17 @@
     loading = true;
     error = "";
     try {
-      const result = await createZap(target, Math.round(zapValue), message);
+      // Use serialized content from slider when available (same as comments: text + emojiTags + mentions)
+      const serialized = sliderComponent?.getSerializedContent?.();
+      const commentText = serialized?.text?.trim() ?? message;
+      const emojiTagsToSend = (serialized?.emojiTags?.length ? serialized.emojiTags : lastEmojiTags) ?? [];
+      const result = await createZap(
+        target,
+        Math.round(zapValue),
+        commentText,
+        signEvent as (t: import("nostr-tools/pure").EventTemplate) => Promise<unknown>,
+        emojiTagsToSend.length ? emojiTagsToSend : undefined
+      );
       invoice = result.invoice;
       zapRequest = result.zapRequest;
       step = "invoice";
@@ -161,7 +178,7 @@
         onzapReceived?.({ zapReceipt });
         setTimeout(() => close(true), 2000);
       },
-      { invoice, appAddress: targetAddress, appEventId: target.id }
+      { invoice: invoice ?? undefined, appAddress: targetAddress, appEventId: target.id }
     );
     receiptTimeout = setTimeout(() => {
       showManualClose = true;
@@ -267,11 +284,48 @@
             <span class="invoice-message">"{message}"</span>
           {/if}
         </div>
-        <div class="qr-container">
-          <a href={invoice ? `lightning:${invoice}` : "#"} class="qr-link" title="Click to open in wallet">
-            {#if qrCodeUrl}
-              <img src={qrCodeUrl} alt="Lightning Invoice QR Code" class="qr-image" loading="eager" />
-            {/if}
+        <!-- QR + Copy block (DownloadModal-style: rounded box, copy link row) -->
+        <div class="invoice-card">
+          <div class="qr-row">
+            <div class="qr-wrap">
+              {#if qrCodeUrl}
+                <a
+                  href={invoice ? `lightning:${invoice}` : "#"}
+                  class="qr-link"
+                  title="Open in Lightning wallet"
+                >
+                  <img
+                    src={qrCodeUrl}
+                    alt="Lightning Invoice QR Code"
+                    class="qr-image"
+                    loading="eager"
+                  />
+                </a>
+              {/if}
+            </div>
+            <button
+              type="button"
+              class="copy-invoice-btn"
+              onclick={copyInvoice}
+              title="Copy BOLT11 invoice"
+            >
+              {#if copied}
+                <Check size={18} class="text-green-500 flex-shrink-0" />
+                <span>Copied!</span>
+              {:else}
+                <Copy size={18} class="flex-shrink-0" />
+                <span>Copy Invoice</span>
+              {/if}
+            </button>
+          </div>
+          <a
+            href={invoice ? `lightning:${invoice}` : "#"}
+            class="open-wallet-btn"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <ExternalLink size={18} class="flex-shrink-0" />
+            <span>Open in Alby / Wallet</span>
           </a>
         </div>
         <p class="invoice-status">
@@ -281,18 +335,9 @@
               <span>Waiting for payment...</span>
             </span>
           {:else}
-            Scan with a Lightning wallet or click to open
+            Scan with a Lightning wallet or open in Alby / browser wallet
           {/if}
         </p>
-        <button type="button" class="copy-button" onclick={copyInvoice}>
-          {#if copied}
-            <Check size={16} class="text-green-500" />
-            <span>Copied to clipboard!</span>
-          {:else}
-            <Copy size={16} />
-            <span>Copy Invoice</span>
-          {/if}
-        </button>
         {#if showManualClose}
           <div class="manual-done-section">
             <p class="manual-done-text">Payment not automatically detected. If you've paid:</p>
@@ -380,23 +425,75 @@
     color: hsl(var(--white66));
     margin-top: 4px;
   }
-  .qr-container {
+  .invoice-card {
+    width: 100%;
+    max-width: 320px;
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    background: hsl(var(--white8));
+    border: 1px solid hsl(var(--border) / 0.4);
+    border-radius: var(--radius-16);
+  }
+  .qr-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .qr-wrap {
+    flex-shrink: 0;
   }
   .qr-link {
     display: block;
-    padding: 12px;
+    padding: 8px;
     background: white;
-    border-radius: var(--radius-16);
+    border-radius: 12px;
+    border: 1px solid hsl(var(--border) / 0.4);
     transition: box-shadow 0.15s ease;
   }
   .qr-link:hover {
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
   }
   .qr-image {
-    width: 192px;
-    height: 192px;
+    width: 128px;
+    height: 128px;
+    display: block;
+  }
+  .copy-invoice-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: transparent;
+    border: none;
+    color: hsl(var(--white66));
+    font-size: 14px;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+  .copy-invoice-btn:hover {
+    color: hsl(var(--foreground));
+  }
+  .open-wallet-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 12px 16px;
+    background: hsl(var(--goldColor) / 0.15);
+    border: 0.33px solid hsl(var(--goldColor) / 0.4);
+    border-radius: var(--radius-12);
+    color: hsl(var(--goldColor));
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .open-wallet-btn:hover {
+    background: hsl(var(--goldColor) / 0.25);
+    border-color: hsl(var(--goldColor) / 0.6);
   }
   .invoice-status {
     font-size: 12px;
@@ -407,25 +504,6 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-  }
-  .copy-button {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    width: 100%;
-    padding: 12px 16px;
-    background: hsl(var(--black33));
-    border: 0.33px solid hsl(var(--white16));
-    border-radius: var(--radius-12);
-    color: hsl(var(--white));
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background-color 0.15s ease;
-  }
-  .copy-button:hover {
-    background: hsl(var(--white8));
   }
   .manual-done-section {
     width: 100%;

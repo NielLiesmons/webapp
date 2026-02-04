@@ -130,7 +130,12 @@
     width: fit-content;
     max-width: 100%;
     min-width: 200px;
-    background: var(--gradient-gold16);
+    /* Slightly lower opacity than --gradient-gold16 (0.16) for a softer look */
+    background: radial-gradient(
+      circle at top left,
+      rgba(255, 199, 54, 0.1) 0%,
+      rgba(255, 160, 55, 0.1) 100%
+    );
     border-radius: 16px 16px 16px 4px;
     padding: 8px 12px;
   }

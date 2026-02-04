@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
+  import { initAuth } from '$lib/stores/auth.svelte';
   import { initCatalogs } from '$lib/stores/catalogs.svelte';
   import { initOnlineStatus, isOnline } from '$lib/stores/online.svelte';
   import { initNostrService } from '$lib/nostr';
@@ -42,6 +43,8 @@
   
   onMount(async () => {
     if (browser) {
+      // Restore auth from localStorage so "logged in" persists across reloads/navigation
+      initAuth();
       // Initialize online/offline detection
       initOnlineStatus();
       // Initialize Nostr service (cache, store, persistence)

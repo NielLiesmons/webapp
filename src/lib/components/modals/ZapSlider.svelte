@@ -356,6 +356,18 @@
   export function getMessage(): string {
     return message;
   }
+  /** Same shape as ShortTextInput.getSerializedContent (for comments/zaps: text + emojiTags + mentions). */
+  export function getSerializedContent(): {
+    text: string;
+    emojiTags: { shortcode: string; url: string }[];
+    mentions: string[];
+  } {
+    return shortTextInput?.getSerializedContent?.() ?? {
+      text: message,
+      emojiTags: [],
+      mentions: [],
+    };
+  }
 </script>
 
 <div class="zap-slider">

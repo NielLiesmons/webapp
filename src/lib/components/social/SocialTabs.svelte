@@ -5,11 +5,13 @@
    * Displays tabs for: Comments, Zaps, Labels, Stacks, Details
    * Only loads content for the currently selected tab.
    */
-  import { Loader2, AlertCircle } from "lucide-svelte";
+  import { AlertCircle } from "lucide-svelte";
   import { wheelScroll } from "$lib/actions/wheelScroll.js";
   import RootComment from "./RootComment.svelte";
   import ZapBubble from "./ZapBubble.svelte";
+  import BubbleSkeleton from "./BubbleSkeleton.svelte";
   import DetailsTab from "./DetailsTab.svelte";
+  import Spinner from "$lib/components/common/Spinner.svelte";
   import { Zap } from "$lib/components/icons";
 
   interface App {
@@ -53,6 +55,7 @@
     amountSats?: number;
     createdAt?: number;
     comment?: string;
+    emojiTags?: { shortcode: string; url: string }[];
   }
 
   interface Props {
@@ -66,6 +69,7 @@
     comments?: Comment[];
     commentsLoading?: boolean;
     commentsError?: string;
+    zapsLoading?: boolean;
     profiles?: Record<string, Profile | null>;
     profilesLoading?: boolean;
     getAppSlug?: (pubkey: string, dTag: string) => string;
@@ -84,6 +88,7 @@
     comments = [],
     commentsLoading = false,
     commentsError = "",
+    zapsLoading = false,
     profiles = {},
     profilesLoading = false,
     getAppSlug = () => "",
@@ -102,6 +107,10 @@
   let activeTab = $state("comments");
 
   const totalZapAmount = $derived(zaps.reduce((sum, zap) => sum + (zap.amountSats || 0), 0));
+  /** Zaps that have a comment (shown in combined feed) */
+  const zapsWithCommentsCount = $derived(zaps.filter((z) => z.comment && z.comment.trim()).length);
+  /** Comment tab badge: comments (roots + replies) + zaps with comments */
+  const totalCommentCount = $derived(comments.length + zapsWithCommentsCount);
 
   function formatSats(amount: number): string {
     if (amount >= 1000000) return `${(amount / 1000000).toFixed(1)}M`;
@@ -159,12 +168,16 @@
   const enrichedZaps = $derived(
     zaps
       .map((zap) => {
-        const profile = zapperProfiles.get(zap.senderPubkey || "");
+        const profile = zap.senderPubkey ? zapperProfiles.get(zap.senderPubkey) : undefined;
+        const displayName =
+          profile?.displayName?.trim() ||
+          profile?.name?.trim() ||
+          (zap.senderPubkey ? `${pubkeyToNpub(zap.senderPubkey).slice(0, 12)}…` : "Anonymous");
         return {
           ...zap,
           type: "zap" as const,
-          displayName: profile?.displayName || profile?.name || "Anonymous",
-          avatarUrl: profile?.picture || null,
+          displayName,
+          avatarUrl: profile?.picture?.trim() || null,
           profileUrl: zap.senderPubkey ? `/profile/${pubkeyToNpub(zap.senderPubkey)}` : "",
           timestamp: zap.createdAt,
         };
@@ -196,17 +209,25 @@
       >
         {#if tab.id === "zaps"}
           <span>Zaps</span>
-          {#if totalZapAmount > 0}
-            <span class="tab-stats">
+          <span class="tab-stats">
+            {#if zapsLoading}
+              <Spinner color="hsl(0 0% 100% / 0.44)" size={14} />
+            {:else if totalZapAmount > 0}
               <Zap variant="fill" size={12} color="hsl(0 0% 100% / 0.44)" />
               <span>{formatSats(totalZapAmount).replace(' sats', '')}</span>
-            </span>
-          {/if}
+            {:else}
+              0
+            {/if}
+          </span>
         {:else if tab.id === "comments"}
           <span>Comments</span>
-          {#if rootCommentsWithReplies.length > 0}
-            <span class="tab-stats">{rootCommentsWithReplies.length}</span>
-          {/if}
+          <span class="tab-stats">
+            {#if commentsLoading}
+              <Spinner color="hsl(0 0% 100% / 0.44)" size={14} />
+            {:else}
+              {totalCommentCount}
+            {/if}
+          </span>
         {:else}
           {tab.label}
         {/if}
@@ -223,15 +244,12 @@
         </div>
       {/if}
 
-      {#if commentsLoading}
-        <div class="flex items-center gap-3 text-sm text-muted-foreground">
-          <Loader2 class="h-4 w-4 animate-spin" />
-          <span>Loading comments...</span>
-        </div>
+      {#if commentsLoading && combinedFeed.length === 0}
+        <BubbleSkeleton />
       {:else if combinedFeed.length === 0}
-        <p class="text-sm text-muted-foreground">
-          No comments yet. Be the first to share feedback.
-        </p>
+        <div class="empty-state-panel">
+          <p class="empty-state-text">No comments yet</p>
+        </div>
       {:else}
         <div class="space-y-4">
           {#each combinedFeed as item (item.type === "zap" ? `zap-${item.id}` : item.id)}
@@ -244,6 +262,8 @@
                 timestamp={item.createdAt}
                 profileUrl={item.profileUrl}
                 message={item.comment || ""}
+                emojiTags={item.emojiTags}
+                resolveMentionLabel={(pk) => profiles[pk]?.displayName ?? profiles[pk]?.name}
               />
             {:else}
               <RootComment
@@ -270,10 +290,12 @@
         </div>
       {/if}
     {:else if activeTab === "zaps"}
-      {#if enrichedZaps.length === 0}
-        <p class="text-sm text-muted-foreground">
-          No zaps yet. Be the first to zap this app.
-        </p>
+      {#if zapsLoading && enrichedZaps.length === 0}
+        <BubbleSkeleton />
+      {:else if enrichedZaps.length === 0}
+        <div class="empty-state-panel">
+          <p class="empty-state-text">No zaps yet</p>
+        </div>
       {:else}
         <div class="space-y-4">
           {#each enrichedZaps as zap (zap.id)}
@@ -285,14 +307,20 @@
               timestamp={zap.createdAt}
               profileUrl={zap.profileUrl}
               message={zap.comment || ""}
+              emojiTags={zap.emojiTags}
+              resolveMentionLabel={(pk) => profiles[pk]?.displayName ?? profiles[pk]?.name}
             />
           {/each}
         </div>
       {/if}
     {:else if activeTab === "labels"}
-      <p class="text-sm text-muted-foreground">Labels coming soon...</p>
+      <div class="empty-state-panel">
+        <p class="empty-state-text">Labels coming soon</p>
+      </div>
     {:else if activeTab === "stacks"}
-      <p class="text-sm text-muted-foreground">Stacks coming soon...</p>
+      <div class="empty-state-panel">
+        <p class="empty-state-text">Stacks coming soon</p>
+      </div>
     {:else if activeTab === "details"}
       <DetailsTab
         shareableId={stack
@@ -346,5 +374,24 @@
     gap: 1px;
     margin-left: 2px;
     color: hsl(0 0% 100% / 0.44);
+  }
+
+  .empty-state-panel {
+    width: 100%;
+    min-height: 600px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    background: hsl(var(--gray16));
+    border-radius: var(--radius-16, 16px);
+  }
+
+  .empty-state-text {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: hsl(var(--white16));
+    text-align: center;
+    padding: 100px 0 48px;
+    margin: 0;
   }
 </style>

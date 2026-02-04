@@ -1,15 +1,12 @@
 <script>
   /**
    * Timestamp Component
-   * Displays relative or formatted timestamps consistently across the site
+   * Single source of truth for timestamp display across the site (bubbles, comments, zaps, testimonials).
    *
-   * Single source of truth for timestamp display logic:
-   * - "now" for < 1 minute
-   * - "Xm ago" for < 1 hour
-   * - "Xh ago" for < 24 hours
-   * - "Xd ago" for < 7 days
-   * - "Mon DD" for older dates in current year
-   * - "Mon DD, YYYY" for dates in other years
+   * - "Just Now" for < 1 minute
+   * - "Today HH:MM" for today
+   * - "Yesterday" for yesterday
+   * - "Jan 21" for all older dates
    */
 
   /**
@@ -36,6 +33,8 @@
 
   /**
    * Normalizes various date inputs to a Date object
+   * @param {number | string | Date | null} value
+   * @returns {Date | null}
    */
   function normalizeToDate(value) {
     if (!value) return null;
@@ -60,48 +59,36 @@
   }
 
   /**
-   * Formats the timestamp as relative time or date
+   * Formats the timestamp (matches TestimonialsSection and all bubbles)
+   * @param {number|string|Date|null} input
+   * @returns {string}
    */
   function formatTimestamp(input) {
     const date = normalizeToDate(input);
     if (!date) return "";
 
     const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
+    const diffMs = now.getTime() - date.getTime();
+    const diffSec = Math.floor(diffMs / 1000);
 
-    // Relative time for recent timestamps
-    if (diffMins < 1) return "now";
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
+    if (diffSec < 60) return "Just Now";
 
-    // Formatted date for older timestamps
-    const monthNames = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ];
+    const isToday = date.toDateString() === now.toDateString();
+    if (isToday) {
+      const hours = date.getHours().toString().padStart(2, "0");
+      const minutes = date.getMinutes().toString().padStart(2, "0");
+      return `Today ${hours}:${minutes}`;
+    }
+
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = date.toDateString() === yesterday.toDateString();
+    if (isYesterday) return "Yesterday";
+
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const month = monthNames[date.getMonth()];
     const day = date.getDate();
-    const year = date.getFullYear();
-    const currentYear = now.getFullYear();
-
-    if (year === currentYear) {
-      return `${month} ${day}`;
-    }
-    return `${month} ${day}, ${year}`;
+    return `${month} ${day}`;
   }
 
   $: displayTime = formatTimestamp(timestamp);

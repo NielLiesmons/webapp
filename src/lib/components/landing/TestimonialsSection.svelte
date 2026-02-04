@@ -1,16 +1,32 @@
 <script>
+  /**
+   * @typedef {{
+   *   id: string;
+   *   pubkey: string;
+   *   content: string;
+   *   created_at: number;
+   *   npub?: string;
+   *   nevent?: string;
+   *   profile?: { displayName?: string; name?: string; picture?: string | null; nip05?: string | null };
+   * }} TestimonialItem
+   */
   import { onMount } from "svelte";
   import LandingSectionTitle from "./LandingSectionTitle.svelte";
   import ProfilePic from "$lib/components/common/ProfilePic.svelte";
   import { ChevronRight } from "$lib/components/icons";
+
+  /** @type {TestimonialItem[]} */
   export let testimonials = [];
 
+  /** @type {HTMLButtonElement | undefined} */
   let seeMoreButton;
 
   $: visibleTestimonials = testimonials;
 
+  /** @type {HTMLDivElement | undefined} */
   let testimonialsContainer;
   const SCROLL_SPEED = 0.4;
+  /** @type {number | undefined} */
   let animationFrameId;
   let isPaused = false;
   let isAnimating = false;
@@ -36,15 +52,28 @@
       ? [...baseColumns, ...baseColumns, ...baseColumns]
       : [];
 
+  /** Display name: Nostr display_name → name → nip05 local part → truncated npub
+   * @param {TestimonialItem} testimonial
+   * @returns {string}
+   */
   function getDisplayName(testimonial) {
-    if (testimonial.profile?.displayName)
-      return testimonial.profile.displayName;
-    if (testimonial.profile?.name) return testimonial.profile.name;
-    if (testimonial.profile?.nip05)
-      return testimonial.profile.nip05.split("@")[0];
-    return testimonial.npub?.slice(0, 12) + "...";
+    const p = testimonial.profile;
+    if (p?.displayName && p.displayName.trim()) return p.displayName.trim();
+    if (p?.name && p.name.trim()) return p.name.trim();
+    const nip05 = p?.nip05;
+    if (nip05 && nip05.includes("@"))
+      return (nip05.split("@")[0] ?? "").trim();
+    const npub = testimonial.npub ?? "";
+    return npub.length > 12 ? `${npub.slice(0, 12)}…` : npub || "Anonymous";
   }
 
+  /** @param {TestimonialItem} testimonial @returns {string | null} */
+  function getPictureUrl(testimonial) {
+    const url = testimonial.profile?.picture;
+    return url && typeof url === "string" && url.trim() ? url.trim() : null;
+  }
+
+  /** @param {number} timestamp @returns {string} - Matches Timestamp component (DESIGN_SYSTEM): Just Now, Today HH:MM, Yesterday, Jan 21 */
   function formatDateTime(timestamp) {
     if (!timestamp) return "";
 
@@ -53,12 +82,10 @@
 
     if (isNaN(date.getTime())) return "";
 
-    const diffMs = now - date;
+    const diffMs = now.getTime() - date.getTime();
     const diffSec = Math.floor(diffMs / 1000);
 
-    if (diffSec < 60) {
-      return "Just now";
-    }
+    if (diffSec < 60) return "Just Now";
 
     const isToday = date.toDateString() === now.toDateString();
     if (isToday) {
@@ -70,14 +97,12 @@
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
     const isYesterday = date.toDateString() === yesterday.toDateString();
-    if (isYesterday) {
-      return "yesterday";
-    }
+    if (isYesterday) return "Yesterday";
 
-    const day = date.getDate().toString().padStart(2, "0");
-    const month = (date.getMonth() + 1).toString().padStart(2, "0");
-    const year = date.getFullYear().toString().slice(-2);
-    return `${day}/${month}/${year}`;
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const month = monthNames[date.getMonth()];
+    const day = date.getDate();
+    return `${month} ${day}`;
   }
 
   function handleMouseEnter() {
@@ -143,6 +168,7 @@
     // TODO: Navigate to testimonials page
   }
 
+  /** @param {MouseEvent} event */
   function handleSeeMoreMouseMove(event) {
     if (!seeMoreButton) return;
     const rect = seeMoreButton.getBoundingClientRect();
@@ -196,9 +222,9 @@
 
     return () => {
       isAnimating = false;
-      if (animationFrameId) {
+      if (animationFrameId != null) {
         cancelAnimationFrame(animationFrameId);
-        animationFrameId = null;
+        animationFrameId = undefined;
       }
       window.removeEventListener("resize", handleResize);
     };
@@ -278,8 +304,9 @@
                 <!-- Top row: Profile pic, name, date/time -->
                 <div class="flex items-center gap-2.5 mb-3">
                   <ProfilePic
-                    pictureUrl={testimonial.profile?.picture}
+                    pictureUrl={getPictureUrl(testimonial)}
                     name={getDisplayName(testimonial)}
+                    pubkey={testimonial.pubkey}
                     size="md"
                   />
 

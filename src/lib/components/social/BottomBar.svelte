@@ -222,7 +222,7 @@
       border-radius: 24px;
       border-bottom: 0.33px solid hsl(var(--white8));
       padding: 12px 2px 12px 12px;
-      box-shadow: 0 16px 120px 40px hsl(var(--black));
+      box-shadow: 0 40px 64px 12px hsl(var(--black));
     }
   }
 </style>

@@ -63,12 +63,13 @@
 
   // Comments and zaps state (comments may have pending + npub for display)
   let comments = $state<(ReturnType<typeof parseComment> & { pending?: boolean; npub?: string })[]>([]);
-  let commentsLoading = $state(true);
+  let commentsLoading = $state(false);
   let commentsError = $state("");
   let profiles = $state<Record<string, { displayName?: string; name?: string; picture?: string } | null>>({});
   let profilesLoading = $state(false);
 
   let zaps = $state<ReturnType<typeof parseZapReceipt>[]>([]);
+  let zapsLoading = $state(false);
   let zapperProfiles = $state(new Map<string, { displayName?: string; name?: string; picture?: string }>());
 
   let releases = $state<Release[]>([]);
@@ -214,11 +215,12 @@
     }
   }
 
-  // Load comments
+  // Load comments (cached comments from store show immediately; only show loading when no cache)
   async function loadComments() {
     if (!app?.pubkey || !app?.dTag) return;
 
-    commentsLoading = true;
+    const hadCached = comments.length > 0;
+    if (!hadCached) commentsLoading = true;
     commentsError = "";
 
     try {
@@ -257,37 +259,59 @@
     }
   }
 
-  // Load zaps
-  async function loadZaps() {
+  // Load zaps (optionally include #e for release/metadata ids — legacy, match Flutter)
+  async function loadZaps(eventIds?: string[]) {
     if (!app?.pubkey || !app?.dTag) return;
 
+    zapsLoading = true;
     try {
-      const events = await fetchZaps(app.pubkey, app.dTag);
+      const events = await fetchZaps(app.pubkey, app.dTag, { eventIds });
       zaps = events.map(parseZapReceipt);
 
-      // Load profiles for zappers
       const uniqueSenders = [...new Set(zaps.map((z) => z.senderPubkey).filter(Boolean))] as string[];
 
+      // Hydrate zapper profiles from EventStore first (instant if cached)
+      const nextZapperProfiles = new Map(zapperProfiles);
+      for (const pk of uniqueSenders) {
+        const ev = queryStoreOne({ kinds: [0], authors: [pk] });
+        if (ev?.content) {
+          try {
+            const c = JSON.parse(ev.content) as Record<string, unknown>;
+            nextZapperProfiles.set(pk, {
+              displayName: (c.display_name as string) ?? (c.name as string),
+              name: c.name as string,
+              picture: c.picture as string,
+            });
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+
+      // Fetch from relays for any still missing, then assign once (reactive)
       await Promise.all(
         uniqueSenders.slice(0, 20).map(async (pubkey) => {
+          if (nextZapperProfiles.has(pubkey)) return;
           try {
             const event = await fetchProfile(pubkey);
-            if (event) {
-              const content = JSON.parse(event.content);
-              zapperProfiles.set(pubkey, {
-                displayName: content.display_name || content.displayName,
-                name: content.name,
-                picture: content.picture,
+            if (event?.content) {
+              const content = JSON.parse(event.content) as Record<string, unknown>;
+              nextZapperProfiles.set(pubkey, {
+                displayName: (content.display_name as string) ?? (content.name as string),
+                name: content.name as string,
+                picture: content.picture as string,
               });
-              zapperProfiles = zapperProfiles;
             }
           } catch {
             // Ignore
           }
         })
       );
+      zapperProfiles = new Map(nextZapperProfiles);
     } catch (err) {
       console.error("Failed to load zaps:", err);
+    } finally {
+      zapsLoading = false;
     }
   }
 
@@ -296,10 +320,16 @@
     try {
       const events = await fetchEvents(
         { kinds: [EVENT_KINDS.RELEASE], "#a": [aTag], limit: 50 },
-        { relays: DEFAULT_CATALOG_RELAYS }
+        { relays: [...DEFAULT_CATALOG_RELAYS] }
       );
       const sorted = events.sort((a, b) => b.created_at - a.created_at);
       releases = sorted.map((e) => parseRelease(e));
+      // Re-fetch zaps with release/metadata ids so we get #e-tagged zaps (legacy)
+      const latest = releases[0];
+      if (latest && app?.pubkey && app?.dTag) {
+        const ids = [latest.id, ...latest.artifacts];
+        loadZaps(ids);
+      }
     } catch (err) {
       console.error("Failed to load releases:", err);
       releases = [];
@@ -332,6 +362,25 @@
     const cachedCommentEvents = queryCommentsFromStore(data.app.pubkey, data.app.dTag);
     if (cachedCommentEvents.length > 0) {
       comments = cachedCommentEvents.map(parseComment);
+      // Sync: hydrate comment-author profiles from store so names/pics show immediately
+      const nextProfiles = { ...profiles };
+      const pubkeys = [...new Set(comments.map((c) => c.pubkey))];
+      for (const pk of pubkeys) {
+        const ev = queryStoreOne({ kinds: [0], authors: [pk] });
+        if (ev?.content) {
+          try {
+            const c = JSON.parse(ev.content) as Record<string, unknown>;
+            nextProfiles[pk] = {
+              displayName: (c.display_name as string) ?? (c.displayName as string),
+              name: c.name as string,
+              picture: c.picture as string,
+            };
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      profiles = nextProfiles;
     }
 
     // Load publisher profile
@@ -445,7 +494,7 @@
     showPublisher={true}
   />
 
-  <div class="container mx-auto px-4 sm:px-6 lg:px-8 pt-4 md:pt-6 pb-8">
+  <div class="container mx-auto px-4 sm:px-6 lg:px-8 pt-4 md:pt-6 pb-24">
     <!-- App Header Row -->
     <div class="app-header flex items-center gap-4 sm:gap-6 mb-6">
       <AppPic
@@ -560,12 +609,12 @@
             {:else if releases.length === 0}
               <p class="text-sm" style="color: hsl(var(--white33));">No releases found.</p>
             {:else}
-              {#each releases as release, i}
+              {#each releases.slice(0, 3) as release, i}
                 {@const preview = releaseNotesPreview(release.notes)}
                 <button
                   type="button"
                   class="panel-list-item flex items-center gap-2 min-w-0 w-full text-left cursor-pointer border-0 bg-transparent p-0"
-                  class:panel-list-item-last={i === releases.length - 1}
+                  class:panel-list-item-last={i === Math.min(3, releases.length) - 1}
                   style="opacity: {1 - i * 0.18}; transform: scale({1 - i * 0.05}); transform-origin: left;"
                   onclick={() => (releasesModalOpen = true)}
                 >
@@ -625,11 +674,13 @@
           amountSats: z.amountSats,
           createdAt: z.createdAt,
           comment: z.comment,
+          emojiTags: z.emojiTags ?? [],
         }))}
         {zapperProfiles}
         {comments}
         {commentsLoading}
         {commentsError}
+        zapsLoading={zapsLoading}
         {profiles}
         {profilesLoading}
       />
@@ -810,7 +861,7 @@
       }
     }}
     onzapReceived={() => {
-      // TODO: Refetch zaps when zap receipt is received
+      loadZaps();
     }}
   />
 {/if}

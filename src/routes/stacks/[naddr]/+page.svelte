@@ -16,6 +16,7 @@
     fetchAppStacksParsed,
     fetchApp,
     fetchProfile,
+    queryStoreOne,
     queryCommentsFromStore,
     fetchComments,
     decodeNaddr,
@@ -225,6 +226,25 @@
       );
       if (cachedCommentEvents.length > 0) {
         comments = cachedCommentEvents.map(parseComment);
+        // Sync: hydrate comment-author profiles from store so names/pics show immediately
+        const nextProfiles = { ...profiles };
+        const pubkeys = [...new Set(comments.map((c) => c.pubkey))];
+        for (const pk of pubkeys) {
+          const ev = queryStoreOne({ kinds: [0], authors: [pk] });
+          if (ev?.content) {
+            try {
+              const c = JSON.parse(ev.content) as Record<string, unknown>;
+              nextProfiles[pk] = {
+                displayName: (c.display_name as string) ?? (c.name as string),
+                name: c.name as string,
+                picture: c.picture as string,
+              };
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+        profiles = nextProfiles;
       }
       loadCommentsForStack(foundStack.pubkey, foundStack.dTag);
 
@@ -252,7 +272,8 @@
   const EVENT_KINDS = { APP: 32267, APP_STACK: 30267 };
 
   async function loadCommentsForStack(pubkey: string, dTag: string) {
-    commentsLoading = true;
+    const hadCached = comments.length > 0;
+    if (!hadCached) commentsLoading = true;
     commentsError = "";
     try {
       const events = await fetchComments(pubkey, dTag, { aTagKind: EVENT_KINDS.APP_STACK });
@@ -360,7 +381,7 @@
 {/if}
 
 <section class="stack-page">
-  <div class="container mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-6">
+  <div class="container mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-24">
     {#if loading}
       <!-- Loading State -->
       <div class="skeleton-publisher-row">

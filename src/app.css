@@ -86,6 +86,7 @@
   --gray66: 0 0% 20% / 0.66;      /* #333333 at 66% opacity */
   --gray44: 0 0% 20% / 0.44;      /* #333333 at 44% opacity */
   --gray33: 0 0% 20% / 0.33;      /* #333333 at 33% opacity */
+  --gray16: 0 0% 20% / 0.16;      /* #333333 at 16% opacity */
 
   /* Blurple color variants - opacity baked into color definition */
   --blurpleLightColor: 252 100% 72%;  /* #8483FE */
@@ -367,6 +368,7 @@
   --gray66: 0 0% 20% / 0.66;      /* #333333 at 66% opacity */
   --gray44: 0 0% 20% / 0.44;      /* #333333 at 44% opacity */
   --gray33: 0 0% 20% / 0.33;      /* #333333 at 33% opacity */
+  --gray16: 0 0% 20% / 0.16;      /* #333333 at 16% opacity */
 
   /* Overlay backdrop color */
   --overlay: 0 0% 0% / 0.85;  /* #000000 (pure black) at 85% opacity */
@@ -437,6 +439,7 @@
   --gray: 35 18% 72%;             /* #BBB5A8 */
   --gray66: 35 20% 68% / 0.66;    /* #AEA798 at 66% opacity */
   --gray33: 35 20% 68% / 0.33;
+  --gray16: 35 20% 68% / 0.16;
 
   /* Overlay backdrop color */
   --overlay: 0 0% 0% / 0.33;  /* #000000 at 33% opacity */

@@ -19,7 +19,7 @@ import { RelayPool } from 'applesauce-relay';
 import { openDB, type IDBPDatabase } from 'idb';
 import type { NostrEvent, Filter } from 'nostr-tools';
 import type { EventTemplate } from 'nostr-tools/pure';
-import { IDB_NAME, IDB_VERSION, DEFAULT_CATALOG_RELAYS } from '$lib/config';
+import { IDB_NAME, IDB_VERSION, DEFAULT_CATALOG_RELAYS, DEFAULT_SOCIAL_RELAYS, PROFILE_RELAYS } from '$lib/config';
 
 const { persistEventsToCache } = Helpers;
 
@@ -388,8 +388,8 @@ export function watchEvent(
 /**
  * Initialize the Nostr service (call once on app start)
  * 
- * Lightweight init - does NOT load cache (prerendered data handles first paint).
- * Sets up persistence so new events are cached for return visits.
+ * Sets up persistence and loads IndexedDB cache into EventStore so return visits
+ * get instant local data (per ARCHITECTURE: "IndexedDB cache loaded into EventStore").
  */
 export async function initNostrService(): Promise<void> {
 	if (initialized) return;
@@ -411,8 +411,12 @@ export async function initNostrService(): Promise<void> {
 		await tx.done;
 	});
 
+	// Load IndexedDB cache into EventStore so queryStore/queryCommentsFromStore
+	// return data immediately on return visits (local-first, per ARCHITECTURE)
+	await loadCacheIntoStore();
+
 	initialized = true;
-	console.log('[NostrService] Initialized (lightweight, no cache load)');
+	console.log('[NostrService] Initialized (cache loaded into EventStore)');
 }
 
 /**
@@ -746,7 +750,7 @@ export async function fetchAppStacksParsed(options: {
 	console.log(`[NostrService] Fetching app stacks (limit: ${limit}, authors: ${authors?.length || 'all'})...`);
 	
 	// Fetch from relays
-	const events = await fetchFromRelays(DEFAULT_CATALOG_RELAYS, filter, { timeout, signal });
+	const events = await fetchFromRelays([...DEFAULT_CATALOG_RELAYS], filter, { timeout, signal });
 
 	if (signal?.aborted) {
 		return [];
@@ -784,19 +788,12 @@ export async function fetchProfile(
 		limit: 1
 	};
 
-	// Use social relays for profiles
-	const socialRelays = [
-		'wss://relay.damus.io',
-		'wss://nos.lol', 
-		'wss://relay.nostr.band'
-	];
-
+	// Use profile relays (social + vertex, match Flutter app)
 	console.log(`[NostrService] Fetching profile for: ${pubkey.slice(0, 8)}...`);
-	
-	const events = await fetchEvents(filter, { 
-		relays: socialRelays, 
-		timeout, 
-		signal 
+	const events = await fetchEvents(filter, {
+		relays: [...PROFILE_RELAYS],
+		timeout,
+		signal,
 	});
 
 	if (events.length > 0) {
@@ -846,13 +843,8 @@ export async function fetchProfilesBatch(
 // Social Features: Comments and Zaps
 // ============================================================================
 
-// Social relays for comments, zaps, and other social interactions
-const SOCIAL_RELAYS = [
-	'wss://relay.damus.io',
-	'wss://nos.lol',
-	'wss://relay.nostr.band',
-	'wss://relay.zapstore.dev'
-];
+// Social relays for comments, zaps (match Flutter: damus, primal, nos.lol)
+const SOCIAL_RELAYS = [...DEFAULT_SOCIAL_RELAYS];
 
 /**
  * Build NIP-22 comment filter.
@@ -1013,6 +1005,7 @@ function buildZapFilter(pubkey: string, identifier: string): Filter {
 /**
  * Fetch zaps for an app.
  * Uses kind 9735 (zap receipt) referencing the app via 'a' tag.
+ * Fetches with both #a and #A (some relays use uppercase) then dedupes.
  *
  * @param pubkey - App publisher's pubkey
  * @param identifier - App's d-tag identifier
@@ -1022,7 +1015,7 @@ function buildZapFilter(pubkey: string, identifier: string): Filter {
 export async function fetchZaps(
 	pubkey: string,
 	identifier: string,
-	options: { timeout?: number; signal?: AbortSignal; relays?: string[] } = {}
+	options: { timeout?: number; signal?: AbortSignal; relays?: string[]; eventIds?: string[] } = {}
 ): Promise<NostrEvent[]> {
 	const { timeout = 5000, signal, relays = SOCIAL_RELAYS } = options;
 
@@ -1030,12 +1023,37 @@ export async function fetchZaps(
 		return [];
 	}
 
-	const filter = { ...buildZapFilter(pubkey, identifier), limit: 100 };
+	const aTagValue = `32267:${pubkey}:${identifier}`;
+	const filterLower = { kinds: [9735] as number[], '#a': [aTagValue], limit: 100 };
+	const filterUpper = { kinds: [9735] as number[], '#A': [aTagValue], limit: 100 };
 
 	console.log(`[NostrService] Fetching zaps for app: ${pubkey.slice(0, 8)}:${identifier}...`);
-	
-	const events = await fetchEvents(filter, { relays, timeout, signal });
-	
+
+	const [eventsLower, eventsUpper] = await Promise.all([
+		fetchEvents(filterLower, { relays, timeout, signal }),
+		fetchEvents(filterUpper, { relays, timeout, signal })
+	]);
+
+	const byId = new Map<string, NostrEvent>();
+	for (const e of [...eventsLower, ...eventsUpper]) {
+		if (!byId.has(e.id)) byId.set(e.id, e);
+	}
+
+	// Also fetch zaps that reference release/metadata via #e (legacy, match Flutter app)
+	const eventIds = options.eventIds ?? [];
+	if (eventIds.length > 0 && !signal?.aborted) {
+		const filterE = { kinds: [9735] as number[], '#e': eventIds, limit: 100 };
+		const filterEUpper = { kinds: [9735] as number[], '#E': eventIds, limit: 100 };
+		const [byELower, byEUpper] = await Promise.all([
+			fetchEvents(filterE, { relays, timeout, signal }),
+			fetchEvents(filterEUpper, { relays, timeout, signal })
+		]);
+		for (const e of [...byELower, ...byEUpper]) {
+			if (!byId.has(e.id)) byId.set(e.id, e);
+		}
+	}
+
+	const events = Array.from(byId.values()).sort((a, b) => b.created_at - a.created_at);
 	console.log(`[NostrService] Found ${events.length} zaps`);
 	return events;
 }
@@ -1067,13 +1085,14 @@ export function watchZaps(
 }
 
 /**
- * Parse a zap receipt to extract sender, amount, and comment.
+ * Parse a zap receipt to extract sender, amount, comment, and emoji tags (from zap request in description).
  */
 export function parseZapReceipt(event: NostrEvent): {
 	senderPubkey: string | null;
 	recipientPubkey: string | null;
 	amountSats: number;
 	comment: string;
+	emojiTags: { shortcode: string; url: string }[];
 	createdAt: number;
 } {
 	const result = {
@@ -1081,6 +1100,7 @@ export function parseZapReceipt(event: NostrEvent): {
 		recipientPubkey: null as string | null,
 		amountSats: 0,
 		comment: '',
+		emojiTags: [] as { shortcode: string; url: string }[],
 		createdAt: event.created_at
 	};
 
@@ -1110,13 +1130,21 @@ export function parseZapReceipt(event: NostrEvent): {
 		}
 	}
 
-	// Parse the description tag which contains the original zap request
+	// Parse the description tag which contains the original zap request (NIP-57)
 	const descTag = event.tags.find(t => t[0] === 'description');
 	if (descTag && descTag[1]) {
 		try {
 			const zapRequest = JSON.parse(descTag[1]) as NostrEvent;
 			result.senderPubkey = zapRequest.pubkey;
 			result.comment = zapRequest.content || '';
+			// Extract NIP-30 emoji tags from zap request (same as comments)
+			const seen = new Set<string>();
+			for (const tag of zapRequest.tags ?? []) {
+				if (tag[0] === 'emoji' && tag[1] && tag[2] && !seen.has(tag[1])) {
+					seen.add(tag[1]);
+					result.emojiTags.push({ shortcode: tag[1], url: tag[2] });
+				}
+			}
 		} catch {
 			// Failed to parse zap request, leave sender as null
 		}

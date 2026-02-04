@@ -7,11 +7,17 @@ export const DEFAULT_CATALOG_RELAYS = [
 	'wss://relay.zapstore.dev'
 ] as const;
 
-// Default social relays (profiles, comments, zaps)
+// Default social relays (profiles, comments, zaps) — align with Flutter zapstore app
 export const DEFAULT_SOCIAL_RELAYS = [
 	'wss://relay.damus.io',
+	'wss://relay.primal.net',
 	'wss://nos.lol',
-	'wss://relay.nostr.band'
+] as const;
+
+// Extra relay for profile lookups (Flutter uses social + vertex for profiles)
+export const PROFILE_RELAYS = [
+	...DEFAULT_SOCIAL_RELAYS,
+	'wss://relay.vertexlab.io',
 ] as const;
 
 // Relay subscription timeout (ms after first EOSE)

@@ -1,10 +1,19 @@
 <script>
+  import { onMount } from "svelte";
+  import { browser } from "$app/environment";
+  import { nip19 } from "nostr-tools";
   import LandingSectionTitle from "./LandingSectionTitle.svelte";
   import SkeletonLoader from "$lib/components/common/SkeletonLoader.svelte";
+  import { initNostrService, fetchEvents, parseZapReceipt, fetchProfile } from "$lib/nostr";
+  import { DEFAULT_SOCIAL_RELAYS } from "$lib/config";
 
-  // Top zappers - disabled for now (requires webapp Nostr integration)
-  let topZappers = [];
-  let isLoading = false;
+  const ZAPSTORE_NPUB = "npub10r8xl2njyepcw2zwv3a6dyufj4e4ajx86hz6v4ehu4gnpupxxp7stjt2p8";
+  const ZAPPER_SLOT_COUNT = 16;
+  const THREE_MONTHS_SEC = 90 * 24 * 60 * 60;
+
+  /** @type {{ name: string; image: string | null }[]} */
+  let topZappers = $state([]);
+  let isLoading = $state(true);
 
   // Team members - proper grid where top/bottom rows are centered between middle row positions
   // Middle row x positions: 0, ±200, ±400, ±600, ±800
@@ -21,6 +30,7 @@
       y: 0,
       blur: 0,
       opacity: 1,
+      isZapperSlot: false,
     },
     {
       name: "And Other Stuff",
@@ -31,6 +41,7 @@
       y: 0,
       blur: 0,
       opacity: 1,
+      isZapperSlot: false,
     },
     {
       name: "Henrique",
@@ -41,6 +52,7 @@
       y: 0,
       blur: 0,
       opacity: 1,
+      isZapperSlot: false,
     },
     // TOP ROW (y: -175) - centered between middle row positions
     {
@@ -52,6 +64,7 @@
       y: -175,
       blur: 0,
       opacity: 1,
+      isZapperSlot: false,
     },
     {
       name: "Niel",
@@ -62,6 +75,7 @@
       y: -175,
       blur: 0,
       opacity: 1,
+      isZapperSlot: false,
     },
     {
       name: "Elsat",
@@ -72,6 +86,7 @@
       y: -175,
       blur: 0.3,
       opacity: 0.92,
+      isZapperSlot: false,
     },
 
     // BOTTOM ROW (y: 175) - centered between middle row positions
@@ -84,6 +99,7 @@
       y: 175,
       blur: 0,
       opacity: 1,
+      isZapperSlot: false,
     },
     {
       name: "HRF",
@@ -94,6 +110,7 @@
       y: 175,
       blur: 0,
       opacity: 1,
+      isZapperSlot: false,
     },
   ];
 
@@ -118,23 +135,80 @@
     { size: 66, x: 700, y: 175, blur: 1.3, opacity: 0.62 },
   ];
 
-  // Combined team members (reactive)
-  $: teamMembers = [
+  const teamMembers = $derived([
     ...coreTeam,
     ...zapperSlots.map((slot, i) => ({
       ...slot,
       name: topZappers[i]?.name || "",
       role: "Top Zapper",
-      image: topZappers[i]?.image || null,
+      image: topZappers[i]?.image ?? null,
       isZapperSlot: true,
     })),
-  ];
+  ]);
 
-  // Note: Top zappers feature disabled for webapp
-  // TODO: Integrate with webapp's Nostr service to fetch zappers
+  if (browser) {
+    onMount(async () => {
+      isLoading = true;
+      try {
+        const decoded = nip19.decode(ZAPSTORE_NPUB);
+        if (decoded.type !== "npub") return;
+        const recipientPubkey = decoded.data;
 
+        await initNostrService();
+        const since = Math.floor(Date.now() / 1000) - THREE_MONTHS_SEC;
+        const receipts = await fetchEvents(
+          {
+            kinds: [9735],
+            "#p": [recipientPubkey],
+            since,
+            limit: 400,
+          },
+          { relays: [...DEFAULT_SOCIAL_RELAYS], timeout: 8000 }
+        );
+
+        const bySender = /** @type {Record<string, number>} */ ({});
+        for (const event of receipts) {
+          const parsed = parseZapReceipt(event);
+          if (parsed.senderPubkey && parsed.amountSats > 0) {
+            bySender[parsed.senderPubkey] = (bySender[parsed.senderPubkey] ?? 0) + parsed.amountSats;
+          }
+        }
+        const sorted = Object.entries(bySender)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, ZAPPER_SLOT_COUNT)
+          .map(([pubkey]) => pubkey);
+
+        const list = [];
+        for (const pubkey of sorted) {
+          let name = "";
+          let image = null;
+          try {
+            const ev = await fetchProfile(pubkey);
+            if (ev?.content) {
+              const c = JSON.parse(ev.content);
+              name = (c.display_name ?? c.name ?? "").trim() || (c.nip05 ? String(c.nip05).split("@")[0] : "") || `${pubkey.slice(0, 8)}…`;
+              image = c.picture && String(c.picture).trim() ? c.picture : null;
+            }
+          } catch {
+            name = `${pubkey.slice(0, 8)}…`;
+          }
+          list.push({ name, image });
+        }
+        topZappers = list;
+      } catch (err) {
+        console.error("[TeamSection] Failed to load top zappers:", err);
+      } finally {
+        isLoading = false;
+      }
+    });
+  } else {
+    isLoading = false;
+  }
+
+  /** @type {HTMLButtonElement | undefined} */
   let donateButton;
 
+  /** @param {MouseEvent} event */
   function handleDonateMouseMove(event) {
     if (!donateButton) return;
     const rect = donateButton.getBoundingClientRect();
@@ -204,9 +278,11 @@
               <div class="profile-pic-placeholder"></div>
             {/if}
 
-            {#if member.name}
+            {#if member.name || (member.isZapperSlot && member.role)}
               <div class="member-info">
-                <span class="member-name">{member.name}</span>
+                {#if member.name}
+                  <span class="member-name">{member.name}</span>
+                {/if}
                 {#if member.role}
                   <span class="member-role">{member.role}</span>
                 {/if}
@@ -222,8 +298,8 @@
   <button
     type="button"
     bind:this={donateButton}
-    on:click={handleDonate}
-    on:mousemove={handleDonateMouseMove}
+    onclick={handleDonate}
+    onmousemove={handleDonateMouseMove}
     class="donate-button-bottom btn-glass-small btn-glass-blurple-hover flex items-center justify-center"
   >
     <span class="btn-text-white">Donate to Zapstore</span>
