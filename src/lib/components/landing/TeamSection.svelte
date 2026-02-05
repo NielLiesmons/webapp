@@ -4,16 +4,81 @@
   import { nip19 } from "nostr-tools";
   import LandingSectionTitle from "./LandingSectionTitle.svelte";
   import SkeletonLoader from "$lib/components/common/SkeletonLoader.svelte";
+  import Modal from "$lib/components/common/Modal.svelte";
+  import { Zap, Send } from "$lib/components/icons";
   import { initNostrService, fetchEvents, parseZapReceipt, fetchProfile } from "$lib/nostr";
   import { DEFAULT_SOCIAL_RELAYS } from "$lib/config";
+  import {
+    hexToColor,
+    stringToColor,
+    getProfileTextColor,
+    rgbToCssString,
+  } from "$lib/utils/color.js";
 
   const ZAPSTORE_NPUB = "npub10r8xl2njyepcw2zwv3a6dyufj4e4ajx86hz6v4ehu4gnpupxxp7stjt2p8";
+  const FRAN_NPUB = "npub1wf4pufsucer5va8g9p0rj5dnhvfeh6d8w0g6eayaep5dhps6rsgs43dgh9";
   const ZAPPER_SLOT_COUNT = 16;
   const THREE_MONTHS_SEC = 90 * 24 * 60 * 60;
+  const ZAP_RECEIPTS_LIMIT = 3000;
+  const ZAPSTORE_APP_NADDR = "/apps/naddr1qvzqqqr7pvpzq7xwd748yfjrsu5yuerm56fcn9tntmyv04w95etn0e23xrczvvraqqgxgetk9eaxzurnw3hhyefwv9c8qakg5jt";
+  const FRAN_PRIMAL_URL = "https://primal.net/p/npub1wf4pufsucer5va8g9p0rj5dnhvfeh6d8w0g6eayaep5dhps6rsgs43dgh9";
+  const MAX_ZAPPER_NAME_LEN = 16;
+  const DONATE_ICON_SIZE = 44;
 
-  /** @type {{ name: string; image: string | null }[]} */
+  // Center profiles (Pip, Fran, Elsat, Opensats) – excluded from top zappers, link to profile
+  const CENTER_NPUBS = [
+    { name: "Pip", npub: "npub176p7sup477k5738qhxx0hk2n0cty2k5je5uvalzvkvwmw4tltmeqw7vgup" },
+    { name: "Fran", npub: "npub1wf4pufsucer5va8g9p0rj5dnhvfeh6d8w0g6eayaep5dhps6rsgs43dgh9" },
+    { name: "Elsat", npub: "npub1zafcms4xya5ap9zr7xxr0jlrtrattwlesytn2s42030lzu0dwlzqpd26k5" },
+    { name: "Opensats", npub: "npub10pensatlcfwktnvjjw2dtem38n6rvw8g6fv73h84cuacxn4c28eqyfn34f" },
+  ];
+  const excludedPubkeys = new Set(
+    CENTER_NPUBS.map(({ npub }) => {
+      try {
+        const d = nip19.decode(npub);
+        return d.type === "npub" ? d.data : null;
+      } catch {
+        return null;
+      }
+    }).filter(Boolean)
+  );
+
+  /** @type {{ name: string | null; image: string | null; pubkey?: string }[]} */
   let topZappers = $state([]);
   let isLoading = $state(true);
+  /** @type {Record<number, boolean>} - indices where profile image failed to load */
+  let imageErrorByIndex = $state({});
+
+  const BASE_PIC_SIZE = 120;
+  const INITIAL_FONT_RATIO = 0.56;
+
+  /** @param {{ name?: string | null; pubkey?: string }} member
+   * @returns {string} */
+  function getMemberInitial(member) {
+    const name = member.name?.trim() ?? "";
+    if (!name || name.toLowerCase().startsWith("npub")) return "";
+    return (name[0] ?? "").toString().toUpperCase();
+  }
+
+  /** @param {{ name?: string | null; pubkey?: string }} member
+   * @returns {{ bgStyle: string; textStyle: string }} */
+  function getMemberColorStyles(member) {
+    const isDark = true;
+    const rgb = member.pubkey
+      ? hexToColor(member.pubkey)
+      : (member.name?.trim()
+        ? stringToColor(member.name)
+        : { r: 128, g: 128, b: 128 });
+    const bgStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.24)`;
+    const textColor = getProfileTextColor(rgb, isDark);
+    const textStyle = rgbToCssString(textColor);
+    return { bgStyle, textStyle };
+  }
+
+  /** @param {number} i */
+  function setImageError(i) {
+    imageErrorByIndex = { ...imageErrorByIndex, [i]: true };
+  }
 
   // Team members - proper grid where top/bottom rows are centered between middle row positions
   // Middle row x positions: 0, ±200, ±400, ±600, ±800
@@ -31,6 +96,8 @@
       blur: 0,
       opacity: 1,
       isZapperSlot: false,
+      nameLoading: false,
+      profileHref: "/profile/npub1wf4pufsucer5va8g9p0rj5dnhvfeh6d8w0g6eayaep5dhps6rsgs43dgh9",
     },
     {
       name: "And Other Stuff",
@@ -42,6 +109,7 @@
       blur: 0,
       opacity: 1,
       isZapperSlot: false,
+      nameLoading: false,
     },
     {
       name: "Henrique",
@@ -53,6 +121,7 @@
       blur: 0,
       opacity: 1,
       isZapperSlot: false,
+      nameLoading: false,
     },
     // TOP ROW (y: -175) - centered between middle row positions
     {
@@ -65,6 +134,8 @@
       blur: 0,
       opacity: 1,
       isZapperSlot: false,
+      nameLoading: false,
+      profileHref: "/profile/npub176p7sup477k5738qhxx0hk2n0cty2k5je5uvalzvkvwmw4tltmeqw7vgup",
     },
     {
       name: "Niel",
@@ -76,6 +147,7 @@
       blur: 0,
       opacity: 1,
       isZapperSlot: false,
+      nameLoading: false,
     },
     {
       name: "Elsat",
@@ -87,6 +159,8 @@
       blur: 0.3,
       opacity: 0.92,
       isZapperSlot: false,
+      nameLoading: false,
+      profileHref: "/profile/npub1zafcms4xya5ap9zr7xxr0jlrtrattwlesytn2s42030lzu0dwlzqpd26k5",
     },
 
     // BOTTOM ROW (y: 175) - centered between middle row positions
@@ -100,6 +174,8 @@
       blur: 0,
       opacity: 1,
       isZapperSlot: false,
+      nameLoading: false,
+      profileHref: "/profile/npub10pensatlcfwktnvjjw2dtem38n6rvw8g6fv73h84cuacxn4c28eqyfn34f",
     },
     {
       name: "HRF",
@@ -111,6 +187,7 @@
       blur: 0,
       opacity: 1,
       isZapperSlot: false,
+      nameLoading: false,
     },
   ];
 
@@ -135,35 +212,87 @@
     { size: 66, x: 700, y: 175, blur: 1.3, opacity: 0.62 },
   ];
 
-  const teamMembers = $derived([
-    ...coreTeam,
-    ...zapperSlots.map((slot, i) => ({
-      ...slot,
-      name: topZappers[i]?.name || "",
-      role: "Top Zapper",
-      image: topZappers[i]?.image ?? null,
-      isZapperSlot: true,
-    })),
-  ]);
+  const ZAPPER_PLACEHOLDER_COUNT = 16;
+  const teamMembers = $derived(
+    isLoading
+      ? [
+          ...coreTeam,
+          ...zapperSlots.slice(0, ZAPPER_PLACEHOLDER_COUNT).map((slot) => ({
+            ...slot,
+            name: null,
+            role: "Top Zapper",
+            image: null,
+            isZapperSlot: true,
+            nameLoading: true,
+            profileHref: undefined,
+          })),
+        ]
+      : [
+          ...coreTeam,
+          ...zapperSlots.map((slot, i) => {
+            const z = topZappers[i];
+            if (!z) {
+              return {
+                ...slot,
+                name: "Anon",
+                role: "Top Zapper",
+                image: null,
+                isZapperSlot: true,
+                nameLoading: false,
+                pubkey: undefined,
+                profileHref: undefined,
+              };
+            }
+            const rawName = z.name ?? "";
+            const displayName = rawName.length > MAX_ZAPPER_NAME_LEN ? rawName.slice(0, MAX_ZAPPER_NAME_LEN) + "..." : rawName;
+            return {
+              ...slot,
+              name: displayName,
+              role: "Top Zapper",
+              image: z.image ?? null,
+              isZapperSlot: true,
+              nameLoading: false,
+              pubkey: z.pubkey,
+              profileHref: z.pubkey ? `/profile/${nip19.npubEncode(z.pubkey)}` : undefined,
+            };
+          }),
+        ]
+  );
+
+  // Recipient pubkeys for zap aggregation: Zapstore + all center profiles (Pip, Fran, Elsat, Opensats)
+  const zapRecipientPubkeys = $derived(
+    (() => {
+      const out = [];
+      try {
+        const d = nip19.decode(ZAPSTORE_NPUB);
+        if (d.type === "npub") out.push(d.data);
+      } catch {}
+      for (const { npub } of CENTER_NPUBS) {
+        try {
+          const d = nip19.decode(npub);
+          if (d.type === "npub") out.push(d.data);
+        } catch {}
+      }
+      return out;
+    })()
+  );
 
   if (browser) {
     onMount(async () => {
       isLoading = true;
       try {
-        const decoded = nip19.decode(ZAPSTORE_NPUB);
-        if (decoded.type !== "npub") return;
-        const recipientPubkey = decoded.data;
+        if (zapRecipientPubkeys.length === 0) return;
 
         await initNostrService();
         const since = Math.floor(Date.now() / 1000) - THREE_MONTHS_SEC;
         const receipts = await fetchEvents(
           {
             kinds: [9735],
-            "#p": [recipientPubkey],
+            "#p": zapRecipientPubkeys,
             since,
-            limit: 400,
+            limit: ZAP_RECEIPTS_LIMIT,
           },
-          { relays: [...DEFAULT_SOCIAL_RELAYS], timeout: 8000 }
+          { relays: [...DEFAULT_SOCIAL_RELAYS], timeout: 12000 }
         );
 
         const bySender = /** @type {Record<string, number>} */ ({});
@@ -175,6 +304,7 @@
         }
         const sorted = Object.entries(bySender)
           .sort((a, b) => b[1] - a[1])
+          .filter(([pubkey]) => !excludedPubkeys.has(pubkey))
           .slice(0, ZAPPER_SLOT_COUNT)
           .map(([pubkey]) => pubkey);
 
@@ -186,15 +316,18 @@
             const ev = await fetchProfile(pubkey);
             if (ev?.content) {
               const c = JSON.parse(ev.content);
-              name = (c.display_name ?? c.name ?? "").trim() || (c.nip05 ? String(c.nip05).split("@")[0] : "") || `${pubkey.slice(0, 8)}…`;
+              name = (c.display_name ?? c.name ?? "").trim() || (c.nip05 ? String(c.nip05).split("@")[0] : "") || "";
               image = c.picture && String(c.picture).trim() ? c.picture : null;
             }
           } catch {
-            name = `${pubkey.slice(0, 8)}…`;
+            // keep name empty; we still show this zapper with pubkey-derived initial
           }
-          list.push({ name, image });
+          list.push({ name, image, pubkey });
         }
-        topZappers = list;
+        // Only include zappers with real identity (name or picture), no anons/empty
+        topZappers = list.filter(
+          (z) => (z.name && z.name.trim() && z.name !== "Supporter") || z.image
+        );
       } catch (err) {
         console.error("[TeamSection] Failed to load top zappers:", err);
       } finally {
@@ -222,8 +355,10 @@
     );
   }
 
+  let donateModalOpen = $state(false);
+
   function handleDonate() {
-    // TODO: Navigate to donate
+    donateModalOpen = true;
   }
 </script>
 
@@ -251,9 +386,15 @@
 
     <div class="team-spread-scaler">
       <div class="team-spread">
-        {#each teamMembers as member}
-          {@const scale = member.size / 120}
-          <div
+        {#each teamMembers as member, i}
+          {@const scale = (member.size ?? 120) / BASE_PIC_SIZE}
+          {@const initial = getMemberInitial(member)}
+          {@const colors = getMemberColorStyles(member)}
+          {@const showImg = member.image && !imageErrorByIndex[i]}
+          {@const showInitial = initial && !showImg}
+          <svelte:element
+            this={member.profileHref ? "a" : "div"}
+            href={member.profileHref}
             class="team-member"
             style="
               left: calc(50% + {member.x}px);
@@ -263,24 +404,38 @@
               opacity: {member.opacity};
             "
           >
-            <!-- Profile pic - base 120px -->
-            {#if member.image}
-              <img src={member.image} alt={member.name} class="profile-pic" />
-            {:else if member.isZapperSlot}
-              {#if isLoading}
-                <div class="profile-pic-skeleton">
-                  <SkeletonLoader />
-                </div>
-              {:else}
-                <div class="profile-pic-placeholder"></div>
-              {/if}
+            <!-- Profile pic - base 120px; image with letter fallback on error -->
+            {#if member.isZapperSlot && member.nameLoading}
+              <div class="profile-pic-skeleton">
+                <SkeletonLoader />
+              </div>
+            {:else if showImg}
+              <div class="profile-pic-wrap">
+                <img
+                  src={member.image}
+                  alt={member.name ?? ""}
+                  class="profile-pic-img"
+                  onerror={() => setImageError(i)}
+                />
+              </div>
+            {:else if showInitial}
+              <div
+                class="profile-pic-initial"
+                style="background-color: {colors.bgStyle}; color: {colors.textStyle}; --initial-font-size: {Math.round(BASE_PIC_SIZE * INITIAL_FONT_RATIO)}px;"
+              >
+                <span class="profile-pic-initial-letter">{initial}</span>
+              </div>
             {:else}
               <div class="profile-pic-placeholder"></div>
             {/if}
 
-            {#if member.name || (member.isZapperSlot && member.role)}
+            {#if member.name != null && member.name !== "" || (member.isZapperSlot && member.role)}
               <div class="member-info">
-                {#if member.name}
+                {#if member.isZapperSlot && member.nameLoading}
+                  <div class="member-name-skeleton">
+                    <SkeletonLoader />
+                  </div>
+                {:else if member.name}
                   <span class="member-name">{member.name}</span>
                 {/if}
                 {#if member.role}
@@ -288,7 +443,7 @@
                 {/if}
               </div>
             {/if}
-          </div>
+          </svelte:element>
         {/each}
       </div>
     </div>
@@ -305,6 +460,41 @@
     <span class="btn-text-white">Donate to Zapstore</span>
   </button>
 </section>
+
+<Modal bind:open={donateModalOpen} ariaLabel="Donate to Zapstore" maxWidth="max-w-xl">
+  <div class="donate-modal-content p-4 md:p-6">
+    <!-- SVG gradient defs for donate panel icons (gray66, theme-aware) -->
+    <svg aria-hidden="true" class="donate-modal-sr-only" focusable="false">
+      <defs>
+        <radialGradient id="donate-gray66-light" cx="0%" cy="0%" r="100%">
+          <stop offset="0%" stop-color="rgb(255, 255, 255)" stop-opacity="0.66" />
+          <stop offset="100%" stop-color="rgb(219, 219, 255)" stop-opacity="0.66" />
+        </radialGradient>
+        <radialGradient id="donate-gray66-dark" cx="0%" cy="0%" r="100%">
+          <stop offset="0%" stop-color="rgb(87, 87, 117)" stop-opacity="0.66" />
+          <stop offset="100%" stop-color="rgb(36, 36, 36)" stop-opacity="0.66" />
+        </radialGradient>
+      </defs>
+    </svg>
+    <h2 class="text-display text-4xl text-foreground text-center mb-6">Donate</h2>
+    <div class="donate-modal-panels">
+      <a href={ZAPSTORE_APP_NADDR} class="donate-panel">
+        <div class="donate-panel-icon donate-panel-icon-zap">
+          <Zap variant="fill" color="url(#donate-gray66-light)" size={DONATE_ICON_SIZE} />
+        </div>
+        <span class="donate-panel-title">Zap The App</span>
+        <span class="donate-panel-desc">Zap the Zapstore app directly</span>
+      </a>
+      <a href={FRAN_PRIMAL_URL} target="_blank" rel="noopener noreferrer" class="donate-panel">
+        <div class="donate-panel-icon donate-panel-icon-send">
+          <Send variant="fill" color="url(#donate-gray66-light)" size={DONATE_ICON_SIZE} />
+        </div>
+        <span class="donate-panel-title">Contact Us</span>
+        <span class="donate-panel-desc">For bigger donations</span>
+      </a>
+    </div>
+  </div>
+</Modal>
 
 <style>
   .team-spread-container {
@@ -344,13 +534,43 @@
   }
 
   /* Base size 120px - scaled via transform */
+  .profile-pic-wrap,
+  .profile-pic-initial,
   .profile-pic-placeholder {
     width: 120px;
     height: 120px;
     border-radius: 50%;
-    background-color: hsl(var(--gray66));
     border: 2px solid hsl(var(--white8));
     flex-shrink: 0;
+  }
+
+  .profile-pic-wrap {
+    overflow: hidden;
+    position: relative;
+  }
+
+  .profile-pic-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .profile-pic-initial {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .profile-pic-initial-letter {
+    font-size: var(--initial-font-size, 67px);
+    font-weight: 700;
+    line-height: 1;
+    user-select: none;
+  }
+
+  .profile-pic-placeholder {
+    background-color: hsl(var(--gray66));
   }
 
   .profile-pic-skeleton {
@@ -363,18 +583,12 @@
     background-color: hsl(var(--gray66));
   }
 
-  .profile-pic {
-    width: 120px;
-    height: 120px;
-    border-radius: 50%;
-    object-fit: cover;
-    border: 2px solid hsl(var(--white8));
-    flex-shrink: 0;
+  .profile-pic-img {
     opacity: 0.9;
     transition: opacity 0.2s ease;
   }
 
-  .team-member:hover .profile-pic {
+  .team-member:hover .profile-pic-img {
     opacity: 1;
   }
 
@@ -385,6 +599,19 @@
     text-align: center;
     gap: 2px;
     width: 160px;
+  }
+
+  .team-member[href] {
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .member-name-skeleton {
+    width: 100px;
+    height: 1.25rem;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    flex-shrink: 0;
   }
 
   .member-name {
@@ -516,5 +743,87 @@
       height: 300px;
       --scale: 0.58;
     }
+  }
+
+  /* Donate modal: header + two panels in white8 */
+  .donate-modal-content {
+    padding: 16px;
+  }
+
+  @media (min-width: 768px) {
+    .donate-modal-content {
+      padding: 24px;
+    }
+  }
+
+  .donate-modal-panels {
+    display: flex;
+    flex-direction: row;
+    gap: 16px;
+  }
+
+  @media (max-width: 480px) {
+    .donate-modal-panels {
+      flex-direction: column;
+    }
+  }
+
+  .donate-panel {
+    flex: 1;
+    min-width: 0;
+    padding: 20px;
+    border-radius: var(--radius-16);
+    background-color: hsl(var(--white8));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    text-align: center;
+    text-decoration: none;
+    color: hsl(var(--foreground));
+  }
+
+  .donate-panel-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+  }
+
+  .donate-panel-icon-zap,
+  .donate-panel-icon-send {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* Gray66 gradient for donate icons – theme-aware */
+  .donate-panel-icon :global(svg) {
+    fill: url(#donate-gray66-light);
+  }
+
+  :global([data-theme="dark"]) .donate-panel-icon :global(svg) {
+    fill: url(#donate-gray66-dark);
+  }
+
+  .donate-modal-sr-only {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .donate-panel-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+  }
+
+  .donate-panel-desc {
+    font-size: 0.9375rem;
+    color: hsl(var(--white66));
   }
 </style>

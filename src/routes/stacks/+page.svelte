@@ -116,7 +116,7 @@
 
     {#if loading || !initialized}
       <div class="stacks-grid">
-        {#each Array(8) as _}
+        {#each [1, 2, 3] as _}
           <div class="skeleton-stack">
             <div class="skeleton-stack-grid">
               <SkeletonLoader />

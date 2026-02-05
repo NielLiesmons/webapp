@@ -1,20 +1,24 @@
 <script>
   import { onMount } from "svelte";
-  import { assets } from "$app/paths";
   import { ChevronRight } from "$lib/components/icons";
   import SkeletonLoader from "$lib/components/common/SkeletonLoader.svelte";
 
-  // Preload the 4 main featured app icons for faster initial render
+  // Session memory: URLs we've already loaded (survives SPA back navigation so no skeletons on return)
+  const parallaxHeroLoadedUrls = new Set();
+
+  // Preload the main featured app icons for faster first paint (above-the-fold + primal)
   const preloadImages = [
     "/images/parallax-apps/zapstore-studio.svg",
     "/images/parallax-apps/yakihonne.png",
     "/images/parallax-apps/grimoire.svg",
     "/images/parallax-apps/bitwarden.png",
+    "/images/parallax-apps/primal.png",
   ];
 
   let heroButton;
 
-  // Track loaded state for each icon image
+  // Track loaded state for each icon image (reassigned for reactivity)
+  /** @type {{ [url: string]: boolean }} */
   let loadedImages = {};
   let devButton;
   let mouseX = 0;
@@ -519,7 +523,33 @@
     }
   }
 
+  function markImageLoaded(/** @type {string} */ url) {
+    if (parallaxHeroLoadedUrls.has(url)) return;
+    parallaxHeroLoadedUrls.add(url);
+    loadedImages = { ...loadedImages, [url]: true };
+  }
+
   onMount(() => {
+    // Restore "already loaded" from session so back navigation shows no skeletons (local-first)
+    const uniqueUrls = [...new Set(iconConfigs.map((c) => c.imageUrl))];
+    /** @type {{ [url: string]: boolean }} */
+    const initial = {};
+    for (const url of uniqueUrls) {
+      if (parallaxHeroLoadedUrls.has(url)) initial[url] = true;
+    }
+    if (Object.keys(initial).length > 0) {
+      loadedImages = { ...loadedImages, ...initial };
+    }
+
+    // Probe cache: if image is already cached (e.g. SW or HTTP cache), mark loaded immediately
+    for (const url of uniqueUrls) {
+      if (parallaxHeroLoadedUrls.has(url)) continue;
+      const img = new Image();
+      img.onload = () => markImageLoaded(url);
+      img.src = url;
+      if (img.complete) markImageLoaded(url);
+    }
+
     window.addEventListener("scroll", handleScroll, { passive: true });
     window.addEventListener("resize", handleResize, { passive: true });
     handleScroll();
@@ -662,7 +692,7 @@
             box-shadow: {thicknessOffsetX}px {thicknessOffsetY}px 0 {thicknessSpread}px hsl(var(--white8));
           "
         >
-          <!-- Skeleton loader while image loads -->
+          <!-- Skeleton loader while image loads (skipped when cached or already loaded this session) -->
           {#if !loadedImages[iconData.imageUrl]}
             <div class="absolute inset-0 overflow-hidden">
               <SkeletonLoader />
@@ -671,13 +701,15 @@
           <img
             src={iconData.imageUrl}
             alt="App icon"
+            decoding="async"
+            fetchpriority={index < 6 ? "high" : "low"}
             class="w-full h-full object-cover transition-opacity duration-300"
             class:opacity-0={!loadedImages[iconData.imageUrl]}
             style="
               backface-visibility: hidden;
               transform: translateZ(0);
             "
-            on:load={() => (loadedImages[iconData.imageUrl] = true)}
+            on:load={() => markImageLoaded(iconData.imageUrl)}
           />
         </div>
       </div>

@@ -15,30 +15,38 @@
   let { children } = $props();
   let online = $derived(isOnline());
   
+  const path = $derived($page.url.pathname as string);
+
   // Determine header variant based on route
-  let isLandingPage = $derived($page.url.pathname === '/');
+  let isLandingPage = $derived(path === '/');
   let isBrowsePage = $derived(
-    $page.url.pathname === '/discover' ||
-    $page.url.pathname === '/apps' ||
-    $page.url.pathname === '/stacks' ||
-    $page.url.pathname === '/studio' ||
-    $page.url.pathname === '/search'
+    path === '/discover' ||
+    path === '/apps' ||
+    path === '/stacks' ||
+    path === '/studio' ||
+    path === '/search'
   );
-  
+
   // Detail pages use their own contextual header
   let isDetailPage = $derived(
-    /^\/apps\/[^/]+$/.test($page.url.pathname) ||
-    /^\/stacks\/[^/]+$/.test($page.url.pathname) ||
-    /^\/profile\/[^/]+$/.test($page.url.pathname)
+    /^\/apps\/[^/]+$/.test(path) ||
+    /^\/stacks\/[^/]+$/.test(path) ||
+    /^\/profile\/[^/]+$/.test(path)
   );
-  
-  // Determine page title for browse variant
+
+  // Header variant: landing, browse, or studio (studio has custom search bar)
+  type HeaderVariant = 'landing' | 'browse' | 'studio';
+  let headerVariant = $derived<HeaderVariant>(
+    isLandingPage ? 'landing' : path === '/studio' ? 'studio' : 'browse'
+  );
+
+  // Determine page title for browse/studio variant
   let pageTitle = $derived(
-    $page.url.pathname === '/discover' ? 'Discover' :
-    $page.url.pathname === '/apps' ? 'Apps' :
-    $page.url.pathname === '/stacks' ? 'Stacks' :
-    $page.url.pathname === '/studio' ? 'Studio' :
-    $page.url.pathname === '/search' ? 'Search' : ''
+    path === '/discover' ? 'Discover' :
+    path === '/apps' ? 'Apps' :
+    path === '/stacks' ? 'Stacks' :
+    path === '/studio' ? 'Zapstore Studio' :
+    path === '/search' ? 'Search' : ''
   );
   
   onMount(async () => {
@@ -68,7 +76,7 @@
     
     {#if !isDetailPage}
       <Header 
-        variant={isLandingPage ? 'landing' : 'browse'} 
+        variant={headerVariant} 
         pageTitle={isBrowsePage ? pageTitle : ''} 
       />
     {/if}

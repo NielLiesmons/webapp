@@ -1,6 +1,7 @@
 <script lang="ts">
   import PublishAppSection from '$lib/components/developer/PublishAppSection.svelte';
-  import DeveloperHero from '$lib/components/developer/DeveloperHero.svelte';
+  import StudioHero from '$lib/components/developer/StudioHero.svelte';
+  import StudioToolsSection from '$lib/components/developer/StudioToolsSection.svelte';
   import { getCurrentPubkey } from '$lib/stores/auth.svelte';
 
   // Check if user is signed in
@@ -8,7 +9,7 @@
 </script>
 
 <svelte:head>
-  <title>Developers — Zapstore</title>
+  <title>Zapstore Studio — Developers</title>
   <meta
     name="description"
     content="A purpose-built developer suite. Reliable tools for shipping apps and interacting with communities of users"
@@ -26,8 +27,11 @@
     </div>
   </div>
 {:else}
-  <!-- Hero Section for logged out users -->
-  <DeveloperHero />
+  <!-- Studio hero: desktop screenshot + terminal CLI + mobile placeholder -->
+  <StudioHero />
+
+  <!-- Tools + Docs section -->
+  <StudioToolsSection />
 
   <!-- Publish Without Permission Section -->
   <PublishAppSection />

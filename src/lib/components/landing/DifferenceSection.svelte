@@ -203,8 +203,8 @@
   }
 
   .store-icon-wrapper {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     border-radius: 12px;
     background-color: hsl(var(--white8));
     display: flex;
@@ -213,15 +213,19 @@
   }
 
   .store-icon {
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     opacity: 0.33;
     filter: brightness(0) invert(1);
   }
 
+  .store-icon-wrapper.zapstore-icon {
+    background: linear-gradient(135deg, hsl(var(--blurpleColor) / 0.28) 0%, hsl(var(--blurpleColor) / 0.12) 100%);
+  }
+
   .store-icon-wrapper.zapstore-icon .store-icon {
-    width: 14px;
-    height: 22px;
+    width: 16px;
+    height: 24px;
     filter: brightness(0) invert(1);
     opacity: 1;
   }
@@ -324,19 +328,19 @@
     }
 
     .store-icon-wrapper {
-      width: 44px;
-      height: 44px;
+      width: 48px;
+      height: 48px;
       border-radius: 14px;
     }
 
     .store-icon {
-      width: 24px;
-      height: 24px;
+      width: 26px;
+      height: 26px;
     }
 
     .store-icon-wrapper.zapstore-icon .store-icon {
-      width: 16px;
-      height: 24px;
+      width: 18px;
+      height: 26px;
     }
   }
 
@@ -350,19 +354,19 @@
     }
 
     .store-icon-wrapper {
-      width: 28px;
-      height: 28px;
-      border-radius: 9px;
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
     }
 
     .store-icon {
-      width: 16px;
-      height: 16px;
+      width: 18px;
+      height: 18px;
     }
 
     .store-icon-wrapper.zapstore-icon .store-icon {
-      width: 10px;
-      height: 16px;
+      width: 12px;
+      height: 18px;
     }
 
     .store-name {

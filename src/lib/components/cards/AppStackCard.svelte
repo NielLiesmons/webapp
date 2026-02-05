@@ -169,6 +169,8 @@
     text-decoration: none;
     color: inherit;
     cursor: pointer;
+    width: 100%;
+    min-width: 0; /* fill column width; column sets the width (e.g. discover .stack-item) */
   }
 
   @media (min-width: 768px) {

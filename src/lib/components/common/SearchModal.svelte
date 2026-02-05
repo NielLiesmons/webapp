@@ -3,9 +3,11 @@
   import { fade } from "svelte/transition";
   import Label from "./Label.svelte";
   import ProfilePic from "./ProfilePic.svelte";
-  import { ChevronRight, Magic } from "$lib/components/icons";
+  import { ChevronRight } from "$lib/components/icons";
   import { wheelScroll } from "$lib/actions/wheelScroll.js";
   import { goto } from "$app/navigation";
+
+  const ZAPSTORE_ICON = "https://zapstore.dev/zapstore-icon.png";
 
   interface Props {
     open?: boolean;
@@ -21,33 +23,24 @@
     platforms = [] 
   }: Props = $props();
 
-  let searchInput: HTMLInputElement;
+  let searchInput = $state<HTMLInputElement | undefined>(undefined);
 
-  // Catalog data
-  const catalogs = [
-    { name: "Zapstore", image: "" },
-    { name: "Beta Males", image: "" },
-    { name: "Google Play", image: "" },
-    { name: "Github", image: "" },
+  // Common labels for quick search (tap = search for that term)
+  const commonLabels = [
+    "Nostr", "Bitcoin", "Chat", "Files", "Wallet",
+    "Social", "Productivity", "Utilities", "Games", "Developer",
   ];
 
-  // Dummy suggestions
-  const dummySuggestions = [
-    "Testflight",
-    "Internet Speed Test",
-    "CPU Stress Test",
-    "TestDPC",
-    "ABTester",
-  ];
-
-  const suggestions = $derived(searchQuery.trim() ? dummySuggestions : []);
-  const showSuggestions = $derived(searchQuery.trim().length > 0);
+  // Single suggestion: exact text the user is typing (search on enter or click)
+  const suggestionText = $derived(searchQuery.trim());
+  const showSuggestions = $derived(suggestionText.length > 0);
 
   // Focus search input when modal opens
   $effect(() => {
-    if (open && searchInput) {
+    const el = searchInput;
+    if (open && el) {
       setTimeout(() => {
-        searchInput?.focus();
+        el.focus();
       }, 100);
     }
     if (!open) {
@@ -70,20 +63,22 @@
     }
   }
 
-  function handleSuggestionClick(suggestion: string) {
-    searchQuery = suggestion;
+  function handleSuggestionClick() {
     handleSearch();
   }
 
   function handleSearch() {
-    if (searchQuery.trim()) {
+    const q = searchQuery.trim();
+    if (q) {
       open = false;
-      goto(`/apps?q=${encodeURIComponent(searchQuery.trim())}`);
+      goto(`/apps?q=${encodeURIComponent(q)}`);
     }
   }
 
-  function handleDescribeClick() {
-    console.log("Describe search:", searchQuery);
+  function handleLabelTap(label: string) {
+    searchQuery = label;
+    open = false;
+    goto(`/apps?q=${encodeURIComponent(label)}`);
   }
 </script>
 
@@ -141,43 +136,26 @@
         </div>
       </div>
 
-      <!-- Suggestions -->
+      <!-- Suggestions: one row = exact query (search on enter or click) -->
       {#if showSuggestions}
         <div class="suggestions-area px-3 pb-2">
-          {#each suggestions as suggestion}
-            <button
-              type="button"
-              class="suggestion-item w-full text-left px-4 py-1.5 hover:bg-white/5 transition-colors cursor-pointer flex items-center gap-3"
-              onclick={() => handleSuggestionClick(suggestion)}
-            >
-              <Search
-                class="h-5 w-5 flex-shrink-0"
-                style="color: hsl(var(--white16));"
-              />
-              <span style="color: hsl(var(--white66));">{suggestion}</span>
-            </button>
-          {/each}
-
           <button
             type="button"
-            class="suggestion-item w-full text-left px-4 py-1.5 hover:bg-white/5 transition-colors cursor-pointer flex items-center gap-3"
-            onclick={handleDescribeClick}
+            class="suggestion-item w-full text-left px-3 py-1.5 hover:bg-white/5 transition-colors cursor-pointer flex items-center gap-3"
+            onclick={handleSuggestionClick}
           >
-            <Magic variant="fill" size={20} color="url(#blurple-gradient)" />
-            <span
-              style="background: var(--gradient-gray66); -webkit-background-clip: text; background-clip: text; color: transparent;"
-            >Search with description</span>
+            <Search
+              class="h-5 w-5 flex-shrink-0"
+              style="color: hsl(var(--white16));"
+            />
+            <span style="color: hsl(var(--white66));">{suggestionText}</span>
           </button>
+          <!-- Search with description – commented out for now
+          <button ... onclick={handleDescribeClick}>
+            <Magic ... /> Search with description
+          </button>
+          -->
         </div>
-
-        <svg width="0" height="0" style="position: absolute;">
-          <defs>
-            <linearGradient id="blurple-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" style="stop-color: hsl(var(--blurpleColor66));" />
-              <stop offset="100%" style="stop-color: hsl(var(--blurpleColor));" />
-            </linearGradient>
-          </defs>
-        </svg>
       {/if}
 
       <!-- Content Area -->
@@ -193,20 +171,21 @@
           </div>
           <div class="scrollable-row scrollbar-hide" use:wheelScroll>
             <div class="flex gap-2">
-              {#each catalogs as catalog}
-                <button
-                  type="button"
-                  class="catalog-pill flex items-center gap-2 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer flex-shrink-0"
-                >
-                  <ProfilePic pictureUrl={catalog.image || null} name={catalog.name} size="sm" />
-                  <span class="text-sm whitespace-nowrap" style="color: hsl(var(--white66));">{catalog.name}</span>
-                </button>
-              {/each}
+              <button
+                type="button"
+                class="catalog-pill flex items-center gap-2 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer flex-shrink-0"
+              >
+                <ProfilePic pictureUrl={ZAPSTORE_ICON} name="Zapstore" size="sm" />
+                <span class="text-sm whitespace-nowrap" style="color: hsl(var(--white66));">Zapstore</span>
+              </button>
+              <span class="pill coming-soon-pill--catalog flex items-center flex-shrink-0 bg-white/5">
+                <span class="text-sm whitespace-nowrap" style="color: hsl(var(--white33));">More catalogs coming soon</span>
+              </span>
             </div>
           </div>
         </div>
 
-        <!-- Labels Section -->
+        <!-- Labels Section (colors derived from label name via Label.svelte / stringToColor) -->
         <div>
           <div class="section-header flex items-center justify-between mb-2">
             <h3 class="eyebrow-label">Labels</h3>
@@ -217,10 +196,15 @@
           </div>
           <div class="scrollable-row scrollbar-hide" use:wheelScroll>
             <div class="flex gap-2">
-              {#each categories as category}
-                <div class="flex-shrink-0">
-                  <Label text={category} isSelected={false} isEmphasized={false} />
-                </div>
+              {#each commonLabels as label}
+                <button
+                  type="button"
+                  class="label-tap flex-shrink-0 cursor-pointer bg-transparent border-none p-0"
+                  onclick={() => handleLabelTap(label)}
+                  aria-label="Search for {label}"
+                >
+                  <Label text={label} isSelected={false} isEmphasized={false} />
+                </button>
               {/each}
             </div>
           </div>
@@ -231,15 +215,16 @@
           <div class="section-header mb-2">
             <h3 class="eyebrow-label">Platforms</h3>
           </div>
-          <div class="flex flex-wrap gap-2 px-4">
-            {#each platforms as platform}
-              <button
-                type="button"
-                class="pill flex items-center gap-2 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer"
-              >
-                <span class="text-sm whitespace-nowrap" style="color: hsl(var(--white66));">{platform}</span>
-              </button>
-            {/each}
+          <div class="flex flex-wrap gap-2 platform-pills">
+            <button
+              type="button"
+              class="pill flex items-center gap-2 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer"
+            >
+              <span class="text-sm whitespace-nowrap" style="color: hsl(var(--white66));">Android</span>
+            </button>
+            <span class="pill flex items-center bg-white/5">
+              <span class="text-sm whitespace-nowrap" style="color: hsl(var(--white33));">More platforms coming soon</span>
+            </span>
           </div>
         </div>
       </div>
@@ -297,6 +282,16 @@
     height: 32px;
     padding: 0 0.875rem;
     border-radius: 9999px;
+  }
+
+  /* Nudge "More catalogs coming soon" up to align with Zapstore pill (catalog pill is ~36px, .pill is 32px) */
+  .coming-soon-pill--catalog {
+    margin-top: -2px;
+  }
+
+  .platform-pills {
+    padding-left: 1rem;
+    padding-right: 1rem;
   }
 
   .suggestions-area {

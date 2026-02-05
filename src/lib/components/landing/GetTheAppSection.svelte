@@ -7,7 +7,7 @@
 
 <!-- Get The App Section -->
 <section
-  class="relative h-[640px] lg:h-[600px] border-t border-border/50 overflow-hidden"
+  class="relative h-[700px] lg:h-[660px] border-t border-border/50 overflow-hidden"
 >
   <!-- Section background decoration -->
   <div
@@ -62,6 +62,29 @@
             loading="lazy"
           />
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom gradient shader (section-relative, just enough for the preview text) -->
+  <div
+    class="absolute left-0 right-0 bottom-0 z-20 pointer-events-none"
+    style="height: 72px; background: linear-gradient(to top, hsl(var(--background)) 0%, hsl(var(--background) / 0.85) 30%, hsl(var(--background) / 0.4) 65%, transparent 100%);"
+  ></div>
+
+  <!-- Preview label: desktop only, right column (same as image) -->
+  <div
+    class="absolute left-0 right-0 bottom-0 z-30 pb-4 pointer-events-none container mx-auto px-4 sm:px-6 md:px-8 lg:px-8 hidden lg:block"
+  >
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16">
+      <div class="hidden lg:block"></div>
+      <div class="flex justify-start items-end">
+        <p
+          class="text-left"
+          style="color: hsl(var(--white33)); font-size: 12px;"
+        >
+          * This is a preview of the coming version
+        </p>
       </div>
     </div>
   </div>

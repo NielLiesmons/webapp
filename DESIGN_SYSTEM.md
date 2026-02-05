@@ -515,6 +515,21 @@ Always use `rounded-xl` (12px) for text skeleton containers.
 
 ## Color System
 
+### Preset Gradients (CSS Variables)
+
+**CRITICAL**: Use the preset gradients from `src/app.css` for any gradient UI (buttons, icons, cards). Do not define new ad-hoc gradients.
+
+| Variable | Use Case |
+|----------|----------|
+| `--gradient-blurple`, `--gradient-blurple-hover` | Primary CTAs, blurple accents |
+| `--gradient-gold`, `--gradient-gold-hover`, `--gradient-gold66`, `--gradient-gold33`, `--gradient-gold16` | Gold accents (zaps, secondary actions) |
+| `--gradient-gray`, `--gradient-gray-hover`, `--gradient-gray66`, `--gradient-gray33`, `--gradient-gray16` | Neutral/gray accents (send, muted actions) |
+| `--gradient-rouge`, `--gradient-rouge-hover` | Destructive actions |
+| `--gradient-green`, `--gradient-green-hover` | Success, confirmations |
+| `--gradient-white-blurple`, `--gradient-white-gold`, etc. | Header/text gradients |
+
+**Usage:** `background: var(--gradient-gold);` (or other preset). For SVG icons to show a gradient, use a wrapper div with the gradient as background and the icon as a CSS mask, or use the gradient’s color stops in an SVG `<linearGradient>`.
+
 ### Base Colors
 
 The project uses HSL color variables defined in `src/app.css`:

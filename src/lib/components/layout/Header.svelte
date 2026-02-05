@@ -13,7 +13,7 @@
   import SpinKeyModal from "$lib/components/modals/SpinKeyModal.svelte";
 
   interface Props {
-    variant?: "landing" | "browse";
+    variant?: "landing" | "browse" | "studio";
     pageTitle?: string;
   }
 
@@ -149,8 +149,8 @@
     <div class="flex items-center justify-between gap-2 sm:gap-6 h-full">
       <!-- Left: Logo or Menu + Page Title -->
       <div class="header-side flex items-center flex-shrink-0 min-w-0">
-        {#if variant === "browse"}
-          <!-- Browse variant: Menu button + Page title -->
+        {#if variant === "browse" || variant === "studio"}
+          <!-- Browse/Studio variant: Menu button + Page title -->
           <div
             class="menu-container"
             bind:this={menuContainer}
@@ -228,7 +228,7 @@
             {/if}
           </div>
 
-          {#if pageTitle === "Studio"}
+          {#if variant === "studio" || pageTitle === "Studio"}
             <a href="/studio" class="flex items-center gap-3 ml-1">
               <svg width="15" height="20" viewBox="64 64 15 20" fill="none" xmlns="http://www.w3.org/2000/svg" class="h-6 lg:h-7 w-auto flex-shrink-0">
                 <defs>
@@ -239,7 +239,7 @@
                 </defs>
                 <path d="M71.4271 64.0009C71.4756 63.9997 71.5243 63.9997 71.5728 64.0009C71.7346 64.0049 71.8944 64.0799 71.9931 64.2256L74.8616 68.4602C74.8676 68.4691 74.8732 68.4781 74.8785 68.4872C74.9007 68.5253 74.9208 68.5646 74.9462 68.6007L74.9542 68.612C75.1988 68.9609 74.9102 69.4216 74.4734 69.3795L73.3883 69.275C73.0394 69.2414 72.7583 69.5398 72.8303 69.8674L73.4327 73.1352C73.4589 73.2775 73.5317 73.4213 73.6767 73.4593C73.77 73.4838 73.872 73.4837 73.9725 73.4529L78.3235 71.9401C78.7191 71.8192 79.094 72.1663 78.9789 72.547L75.8194 83.6386C75.6627 84.1567 74.8757 84.1035 74.8039 83.57L74.0919 78.907C74.0625 78.7147 73.8297 78.6031 73.6396 78.5368L71.7235 77.8667C71.5791 77.8162 71.4207 77.8162 71.2763 77.8667L69.3604 78.5368C69.1703 78.6031 68.9373 78.7148 68.908 78.9071L68.1961 83.57C68.1243 84.1035 67.3373 84.1567 67.1806 83.6386L64.0211 72.547C63.906 72.1663 64.2808 71.8192 64.6765 71.9401L69.0275 73.4529C69.128 73.4837 69.2299 73.4838 69.3231 73.4593C69.4682 73.4213 69.5409 73.2775 69.5672 73.1352L70.1697 69.8674C70.2417 69.5398 69.9606 69.2414 69.6117 69.275L68.5264 69.3795C68.0897 69.4215 67.8012 68.9608 68.0458 68.612L68.0539 68.6005C68.079 68.5646 68.0989 68.5256 68.121 68.4879C68.1265 68.4786 68.1323 68.4694 68.1384 68.4602L71.0069 64.2256C71.1056 64.0799 71.2653 64.005 71.4271 64.0009Z" fill="url(#header-studio-gradient)" />
               </svg>
-              <span class="page-title font-semibold text-lg lg:text-xl tracking-tight">Studio</span>
+              <span class="page-title font-semibold text-lg lg:text-xl tracking-tight">{pageTitle}</span>
             </a>
           {:else if pageTitle}
             <span class="page-title font-semibold text-lg lg:text-xl tracking-tight ml-2">{pageTitle}</span>
@@ -323,17 +323,30 @@
         {/if}
       </div>
 
-      <!-- Centered Search Bar -->
-      <div class="header-search-container hidden sm:flex flex-1 justify-center px-2 sm:px-3 min-w-0 lg:min-w-fit">
+      <!-- Search Bar: centered for browse/landing, right-aligned for studio with 16px gap to CTA -->
+      <div
+        class={cn(
+          "header-search-container hidden sm:flex flex-1 px-2 sm:px-3 min-w-0 lg:min-w-fit",
+          variant === "studio" ? "justify-end header-search-studio-gap" : "justify-center"
+        )}
+      >
         <button
           type="button"
           onclick={openSearch}
-          class="search-bar-btn search-bar-width flex items-center gap-2 sm:gap-3 pl-2.5 pr-3 sm:pl-3 sm:pr-4 h-10 relative z-10 cursor-pointer min-w-0 lg:min-w-fit"
+          class={cn(
+            "search-bar-btn flex items-center gap-2 relative z-10 cursor-pointer text-base",
+            variant === "studio"
+              ? "search-bar-studio h-10 pl-3 pr-3"
+              : "search-bar-width gap-3 pl-2.5 pr-3 sm:pl-3 sm:pr-4 h-10 min-w-0 lg:min-w-fit"
+          )}
           style="border-color: hsl(var(--white16)); pointer-events: auto;"
         >
-          <Search class="h-5 w-5 flex-shrink-0 pointer-events-none" style="color: hsl(var(--white33));" />
-          <span class="text-base flex-1 text-left pointer-events-none" style="color: hsl(var(--white33));">
-            Search Any App
+          <Search
+            class="h-5 w-5 flex-shrink-0 pointer-events-none"
+            style="color: hsl(var(--white33));"
+          />
+          <span class="flex-1 text-left pointer-events-none" style="color: hsl(var(--white33));">
+            {variant === "studio" ? "Search / Command" : "Search Any App"}
           </span>
         </button>
       </div>
@@ -449,6 +462,24 @@
 
   .page-title {
     color: hsl(var(--white));
+  }
+
+  /* Studio: search bar 16px from CTA (nav has gap-6 = 24px; -8px gives 16px) */
+  .header-search-studio-gap {
+    margin-right: -8px;
+  }
+
+  .search-bar-studio {
+    min-width: 260px;
+    max-width: 320px;
+    width: 100%;
+    border: 0.33px solid hsl(var(--white16));
+    border-radius: var(--radius-16);
+    background-color: transparent;
+  }
+
+  .search-bar-studio:hover {
+    background-color: transparent;
   }
 
   .menu-backdrop {

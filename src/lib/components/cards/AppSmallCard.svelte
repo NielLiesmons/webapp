@@ -78,6 +78,7 @@
     color: inherit;
     background: transparent !important;
     width: 100%;
+    min-width: 0; /* fill available space in grid/column without fixed width */
   }
 
   @media (min-width: 768px) {
