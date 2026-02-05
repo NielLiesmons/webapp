@@ -7,6 +7,7 @@ and browsing apps distributed via Nostr app catalogs.
 
 | What | Where |
 |------|-------|
+| **Design system (colors, gradients, panels, buttons, icons, etc.)** | **`DESIGN_SYSTEM.md`** |
 | Architecture & patterns | `spec/guidelines/ARCHITECTURE.md` |
 | Non-negotiable rules | `spec/guidelines/INVARIANTS.md` |
 | Quality standards | `spec/guidelines/QUALITY_BAR.md` |
@@ -18,7 +19,7 @@ and browsing apps distributed via Nostr app catalogs.
 
 **Phase 1: Apps** — Browse and discover apps, releases, search.
 
-Phase 2 (Social: comments, zaps, auth) will be designer-led with separate specs.
+**All UI and visual design MUST follow the design system.** From here on, work is design-led: always check **`DESIGN_SYSTEM.md`** for panels, buttons, colors, preset gradients, icons, loading states, modals, and typography. Do not invent custom gradients, borders, or styles—use the preset gradients and tokens defined there and in `src/app.css`.
 
 ## File Ownership
 

@@ -1,109 +1,133 @@
 <script lang="ts">
-  // Homepage - no apps shown, just landing page with CTA
+	import { onMount } from 'svelte';
+	import { browser } from '$app/environment';
+	import DownloadModal from '$lib/components/common/DownloadModal.svelte';
+	import ParallaxHero from '$lib/components/landing/ParallaxHero.svelte';
+	import GetTheAppSection from '$lib/components/landing/GetTheAppSection.svelte';
+	import TestimonialsSection from '$lib/components/landing/TestimonialsSection.svelte';
+	// import ZapTheAppSection from "$lib/components/landing/ZapTheAppSection.svelte";
+	import ReleaseYourAppsSection from '$lib/components/landing/ReleaseYourAppsSection.svelte';
+	import DifferenceSection from '$lib/components/landing/DifferenceSection.svelte';
+	import RoadmapSection from '$lib/components/landing/RoadmapSection.svelte';
+	import TeamSection from '$lib/components/landing/TeamSection.svelte';
+	import { initNostrService, queryStoreOne, fetchProfile } from '$lib/nostr';
+
+	let { data } = $props();
+
+	type TestimonialRow = {
+		id: string;
+		pubkey: string;
+		content: string;
+		created_at: number;
+		npub?: string;
+		nevent?: string;
+		profile?: {
+			displayName?: string;
+			name?: string;
+			picture?: string | null;
+			nip05?: string | null;
+		};
+	};
+	const initialTestimonials = $derived(data?.testimonials ?? []);
+	let testimonials = $state<TestimonialRow[]>([]);
+
+	let showDownloadModal = $state(false);
+
+	if (browser) {
+		onMount(async () => {
+			const raw: TestimonialRow[] = Array.isArray(initialTestimonials) ? initialTestimonials : [];
+			testimonials = raw;
+			await initNostrService();
+			if (raw.length === 0) return;
+
+			type ProfileShape = { displayName?: string; name?: string; picture?: string; nip05?: string };
+			const profilesByPubkey = new Map<string, ProfileShape>();
+
+			for (const t of raw) {
+				const pubkey = t.pubkey;
+				if (!pubkey || profilesByPubkey.has(pubkey)) continue;
+
+				const ev = queryStoreOne({ kinds: [0], authors: [pubkey] });
+				if (ev?.content) {
+					try {
+						const c = JSON.parse(ev.content) as Record<string, unknown>;
+						profilesByPubkey.set(pubkey, {
+							displayName: (c.display_name as string) ?? (c.name as string),
+							name: c.name as string,
+							picture: c.picture as string,
+							nip05: c.nip05 as string
+						});
+					} catch {
+						/* ignore */
+					}
+				}
+			}
+
+			const missing = raw.filter((t) => t.pubkey && !profilesByPubkey.has(t.pubkey));
+			await Promise.all(
+				missing.slice(0, 30).map(async (t) => {
+					const pubkey = t.pubkey!;
+					try {
+						const event = await fetchProfile(pubkey);
+						if (event?.content) {
+							const content = JSON.parse(event.content) as Record<string, unknown>;
+							profilesByPubkey.set(pubkey, {
+								displayName: (content.display_name as string) ?? (content.name as string),
+								name: content.name as string,
+								picture: content.picture as string,
+								nip05: content.nip05 as string
+							});
+						}
+					} catch {
+						/* ignore */
+					}
+				})
+			);
+
+			testimonials = raw.map((t) => ({
+				...t,
+				profile: profilesByPubkey.get(t.pubkey) ?? t.profile
+			}));
+		});
+	}
+
+	$effect(() => {
+		if (!browser) return;
+		if (testimonials.length > 0) return;
+		if (initialTestimonials.length > 0) testimonials = initialTestimonials;
+	});
 </script>
 
 <svelte:head>
-  <title>Zapstore — Discover Apps on Nostr</title>
-  <meta name="description" content="Discover and install apps from the Nostr network. Open source, decentralized app store.">
+	<title>Zapstore</title>
+	<meta
+		name="description"
+		content="Discover apps on Nostr. Open source, decentralized app store."
+	/>
 </svelte:head>
 
-<section class="hero">
-  <h1>Discover Apps on Nostr</h1>
-  <p>Open source apps, verified by the community</p>
-</section>
+<DownloadModal bind:open={showDownloadModal} isZapstore={true} />
 
-<section class="features">
-  <div class="feature">
-    <div class="feature-icon">🔓</div>
-    <h3>Open Source</h3>
-    <p>All apps are open source with verifiable code</p>
-  </div>
-  <div class="feature">
-    <div class="feature-icon">🌐</div>
-    <h3>Decentralized</h3>
-    <p>Published via Nostr relays, no central authority</p>
-  </div>
-  <div class="feature">
-    <div class="feature-icon">✅</div>
-    <h3>Community Verified</h3>
-    <p>Reviews and attestations from the community</p>
-  </div>
-</section>
+<!-- Hero Section -->
+<ParallaxHero />
 
-<section class="cta">
-  <a href="/apps" class="browse-all">Browse All Apps →</a>
-</section>
+<!-- Get The App Section -->
+<GetTheAppSection showDownloadModal={() => (showDownloadModal = true)} />
 
-<style>
-  .hero {
-    text-align: center;
-    padding: 4rem 1rem;
-    background: linear-gradient(135deg, var(--color-accent, #8b5cf6) 0%, var(--color-accent-hover, #7c3aed) 100%);
-    border-radius: 1rem;
-    color: white;
-    margin-bottom: 3rem;
-  }
-  
-  .hero h1 {
-    font-size: 2.5rem;
-    font-weight: 700;
-    margin: 0 0 0.5rem;
-  }
-  
-  .hero p {
-    font-size: 1.125rem;
-    opacity: 0.9;
-    margin: 0;
-  }
-  
-  .features {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 2rem;
-    margin-bottom: 3rem;
-  }
-  
-  .feature {
-    text-align: center;
-    padding: 1.5rem;
-  }
-  
-  .feature-icon {
-    font-size: 2.5rem;
-    margin-bottom: 1rem;
-  }
-  
-  .feature h3 {
-    font-size: 1.125rem;
-    font-weight: 600;
-    margin: 0 0 0.5rem;
-  }
-  
-  .feature p {
-    color: var(--color-text-secondary, #6b7280);
-    margin: 0;
-    font-size: 0.875rem;
-  }
-  
-  .cta {
-    text-align: center;
-    padding: 2rem;
-  }
-  
-  .browse-all {
-    display: inline-block;
-    padding: 1rem 2rem;
-    background: var(--color-accent, #8b5cf6);
-    color: white;
-    text-decoration: none;
-    border-radius: 9999px;
-    font-weight: 500;
-    font-size: 1.125rem;
-    transition: background 0.2s, transform 0.2s;
-  }
-  
-  .browse-all:hover {
-    background: var(--color-accent-hover, #7c3aed);
-    transform: translateY(-2px);
-  }
-</style>
+<!-- Release with ease Section -->
+<ReleaseYourAppsSection />
+
+<!-- Testimonials Section -->
+<TestimonialsSection {testimonials} />
+
+<!-- What's the difference Section -->
+<DifferenceSection />
+
+<!-- Zap The App Section (commented out for now) -->
+<!-- <ZapTheAppSection /> -->
+
+<!-- Roadmap Section -->
+<RoadmapSection />
+
+<!-- Team Section -->
+<TeamSection />

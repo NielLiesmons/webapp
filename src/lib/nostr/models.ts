@@ -16,15 +16,20 @@ import { EVENT_KINDS } from '$lib/config';
 export interface App {
 	id: string;
 	pubkey: string;
+	npub: string;
 	dTag: string;
 	name: string;
 	description: string;
+	descriptionHtml?: string;
 	icon?: string;
 	images: string[];
+	platform?: string;
 	repository?: string;
 	license?: string;
+	url?: string;
 	createdAt: number;
 	naddr: string;
+	rawEvent?: unknown;
 }
 
 export interface Release {
@@ -34,8 +39,11 @@ export interface Release {
 	appDTag: string;
 	version: string;
 	releaseNotes?: string;
+	notes?: string;
+	notesHtml?: string;
 	artifacts: string[];
 	createdAt: number;
+	url?: string;
 }
 
 export interface FileMetadata {
@@ -57,6 +65,25 @@ export interface Profile {
 	nip05?: string;
 	lud16?: string;
 	createdAt: number;
+}
+
+export interface AppRef {
+	kind: number;
+	pubkey: string;
+	identifier: string;
+}
+
+export interface AppStack {
+	id: string;
+	pubkey: string;
+	dTag: string;
+	title: string;
+	description: string;
+	image?: string;
+	appRefs: AppRef[];
+	createdAt: number;
+	naddr: string;
+	rawEvent?: unknown;
 }
 
 // =============================================================================
@@ -82,31 +109,54 @@ export function parseApp(event: NostrEvent): App {
 		identifier: dTag
 	});
 
+	const npub = nip19.npubEncode(event.pubkey);
+	const description = (content.description as string) ?? '';
+
 	return {
 		id: event.id,
 		pubkey: event.pubkey,
+		npub,
 		dTag,
 		name: event.tags.find((t) => t[0] === 'name')?.[1] ?? (content.name as string) ?? dTag,
-		description: (content.description as string) ?? '',
+		description,
+		descriptionHtml: description ? `<p>${description.replace(/\n/g, '</p><p>')}</p>` : undefined,
 		icon: event.tags.find((t) => t[0] === 'icon')?.[1] ?? (content.icon as string),
 		images: event.tags.filter((t) => t[0] === 'image').map((t) => t[1]!),
+		platform: event.tags.find((t) => t[0] === 'platform')?.[1] ?? (content.platform as string) ?? 'Android',
 		repository: content.repository as string | undefined,
 		license: content.license as string | undefined,
+		url: content.url as string | undefined,
 		createdAt: event.created_at,
-		naddr
+		naddr,
+		rawEvent: event
 	};
 }
 
 /**
  * Parse a kind 30063 Release event
  */
+/**
+ * Derive display version from release: prefer 'version' tag, else extract from dTag (package@version).
+ * Matches website behavior so we show e.g. "v1.5.1-release" not "com.oxchat.nostr@v1.5.1-release".
+ */
+function releaseDisplayVersion(versionTag: string | undefined, dTag: string): string {
+	if (versionTag) return versionTag;
+	const atIndex = dTag.lastIndexOf('@');
+	if (atIndex !== -1 && atIndex < dTag.length - 1) return dTag.slice(atIndex + 1);
+	return dTag;
+}
+
 export function parseRelease(event: NostrEvent): Release {
 	const dTag = event.tags.find((t) => t[0] === 'd')?.[1] ?? '';
 	const aTag = event.tags.find((t) => t[0] === 'a')?.[1] ?? '';
-	const version = event.tags.find((t) => t[0] === 'version')?.[1] ?? dTag;
+	const versionTag = event.tags.find((t) => t[0] === 'version')?.[1];
+	const version = releaseDisplayVersion(versionTag, dTag);
+	const url = event.tags.find((t) => t[0] === 'url')?.[1];
 
 	// Extract app d-tag from a-tag (format: "kind:pubkey:identifier")
 	const appDTag = aTag.split(':')[2] ?? '';
+
+	const notes = event.content || undefined;
 
 	return {
 		id: event.id,
@@ -114,9 +164,12 @@ export function parseRelease(event: NostrEvent): Release {
 		dTag,
 		appDTag,
 		version,
-		releaseNotes: event.content || undefined,
+		releaseNotes: notes,
+		notes,
+		notesHtml: notes ? `<p>${notes.replace(/\n/g, '</p><p>')}</p>` : undefined,
 		artifacts: event.tags.filter((t) => t[0] === 'e').map((t) => t[1]!),
-		createdAt: event.created_at
+		createdAt: event.created_at,
+		url
 	};
 }
 
@@ -163,6 +216,49 @@ export function parseProfile(event: NostrEvent): Profile {
 	};
 }
 
+/**
+ * Parse a kind 30267 App Stack event
+ */
+export function parseAppStack(event: NostrEvent): AppStack {
+	const dTag = event.tags.find((t) => t[0] === 'd')?.[1] ?? '';
+	const title = event.tags.find((t) => t[0] === 'title')?.[1] ?? 
+		event.tags.find((t) => t[0] === 'name')?.[1] ?? dTag;
+	const description = event.content || '';
+	const image = event.tags.find((t) => t[0] === 'image')?.[1];
+
+	// Parse 'a' tags to get app references (format: "kind:pubkey:identifier")
+	const appRefs: AppRef[] = event.tags
+		.filter((t) => t[0] === 'a')
+		.map((t) => {
+			const parts = t[1]?.split(':') ?? [];
+			return {
+				kind: parseInt(parts[0] ?? '0', 10),
+				pubkey: parts[1] ?? '',
+				identifier: parts[2] ?? ''
+			};
+		})
+		.filter((ref) => ref.pubkey && ref.identifier);
+
+	const naddr = nip19.naddrEncode({
+		kind: EVENT_KINDS.APP_STACK,
+		pubkey: event.pubkey,
+		identifier: dTag
+	});
+
+	return {
+		id: event.id,
+		pubkey: event.pubkey,
+		dTag,
+		title,
+		description,
+		image,
+		appRefs,
+		createdAt: event.created_at,
+		naddr,
+		rawEvent: event
+	};
+}
+
 // =============================================================================
 // Utilities
 // =============================================================================
@@ -173,6 +269,17 @@ export function parseProfile(event: NostrEvent): Profile {
 export function encodeAppNaddr(pubkey: string, identifier: string): string {
 	return nip19.naddrEncode({
 		kind: EVENT_KINDS.APP,
+		pubkey,
+		identifier
+	});
+}
+
+/**
+ * Encode an app stack to its naddr
+ */
+export function encodeStackNaddr(pubkey: string, identifier: string): string {
+	return nip19.naddrEncode({
+		kind: EVENT_KINDS.APP_STACK,
 		pubkey,
 		identifier
 	});
