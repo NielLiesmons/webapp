@@ -1,375 +1,500 @@
 <script>
-  import { onMount } from "svelte";
-  import { assets } from "$app/paths";
+	import { onMount } from 'svelte';
+	import { assets } from '$app/paths';
+	import { ChevronRight } from '$lib/components/icons';
 
-  let mounted = false;
+	let mounted = false;
 
-  onMount(() => {
-    requestAnimationFrame(() => {
-      mounted = true;
-    });
-  });
+	onMount(() => {
+		requestAnimationFrame(() => {
+			mounted = true;
+		});
+	});
 </script>
 
-<section class="studio-hero relative studio-hero-no-clip">
-  <!-- Header Content - tighter spacing -->
-  <div class="container mx-auto px-4 sm:px-6 lg:px-8 pt-8 sm:pt-10 lg:pt-12">
-    <h1
-      class="text-display-lg text-3xl sm:text-4xl lg:text-5xl xl:text-6xl leading-tight mb-3 sm:mb-4"
-    >
-      <span
-        style="background: var(--gradient-gray); -webkit-background-clip: text; background-clip: text; color: transparent;"
-      >
-        A purpose-built
-      </span>
-      <br />
-      <span
-        style="background: var(--gradient-blurple-light); -webkit-background-clip: text; background-clip: text; color: transparent;"
-      >
-        developer suite
-      </span>
-    </h1>
-    <p class="text-lg sm:text-xl text-muted-foreground max-w-lg mb-6 sm:mb-8">
-      Reliable tools for shipping apps and interacting with communities of users.
-    </p>
-  </div>
+<!-- Fixed height: lower on mobile; higher on desktop -->
+<section
+	class="studio-hero relative h-[440px] sm:h-[640px] md:h-[700px] lg:h-[720px] xl:h-[760px] overflow-hidden flex flex-col"
+>
+	<!-- Header + CTA (desktop only); centered on mobile, left on desktop -->
+	<div
+		class="studio-hero-header container mx-auto px-4 sm:px-6 lg:px-8 pt-12 sm:pt-12 lg:pt-16 flex-shrink-0 flex flex-col sm:flex-row sm:items-start sm:justify-between sm:gap-8 text-center sm:text-left"
+	>
+		<div class="mx-auto sm:mx-0 max-w-lg">
+			<h1
+				class="text-display-lg text-4xl sm:text-4xl lg:text-5xl xl:text-6xl leading-tight mb-3 sm:mb-4 mx-auto sm:mx-0 max-w-lg"
+			>
+				<span
+					style="background: var(--gradient-gray); -webkit-background-clip: text; background-clip: text; color: transparent;"
+				>
+					A purpose-built
+				</span>
+				<br />
+				<span
+					style="background: var(--gradient-blurple-light); -webkit-background-clip: text; background-clip: text; color: transparent;"
+				>
+					developer suite
+				</span>
+			</h1>
+			<p
+				class="text-lg sm:text-xl text-muted-foreground max-w-lg mb-6 sm:mb-8 lg:mb-10 leading-relaxed mx-auto sm:mx-0"
+			>
+				Reliable tools for shipping apps and interacting<br class="hidden sm:block" /> with communities
+				of users.
+			</p>
+		</div>
+		<a
+			href="#quickstart"
+			class="studio-hero-cta group hidden sm:inline-flex items-center justify-center gap-3 btn-glass-large btn-glass-with-chevron flex-shrink-0 self-center sm:self-start"
+		>
+			Start Publishing
+			<ChevronRight
+				variant="outline"
+				color="hsl(var(--white33))"
+				size={18}
+				className="transition-transform group-hover:translate-x-0.5"
+			/>
+		</a>
+	</div>
 
-  <!-- Screenshots: same 3D layout as DeveloperHero (absolute positioning, all with 3D transforms) -->
-  <div class="container mx-auto px-4 sm:px-6 lg:px-8 relative studio-screenshots-container">
-    <div class="studio-screenshots-wrapper">
-      <!-- Desktop - full width, 3D tilt, real image, no border/clip -->
-      <div class="screenshot-desktop {mounted ? 'screenshot-visible' : ''}">
-        <img
-          src={`${assets}/images/studio-screenshot.png`}
-          alt="Zapstore Studio desktop preview"
-          class="studio-desktop-img"
-          loading="lazy"
-        />
-      </div>
+	<!-- Screenshots: fixed to bottom of section; only section clips (no overflow here) -->
+	<div class="studio-screenshots-clip pt-2 sm:pt-4 lg:pt-8">
+		<div
+			class="container mx-auto px-4 sm:px-6 lg:px-8 relative studio-screenshots-container h-full"
+		>
+			<div class="studio-screenshots-wrapper">
+				<!-- Desktop - full width, 3D tilt -->
+				<div class="screenshot-desktop {mounted ? 'screenshot-visible' : ''}">
+					<img
+						src={`${assets}/images/studio-screenshot.png`}
+						alt="Zapstore Studio desktop preview"
+						class="studio-desktop-img"
+						loading="lazy"
+					/>
+				</div>
 
-      <!-- CLI - custom terminal, 3D tilt -->
-      <div class="screenshot-cli {mounted ? 'screenshot-visible' : ''}">
-        <div class="terminal-window">
-          <div class="terminal-header">
-            <span class="terminal-dot terminal-dot-red"></span>
-            <span class="terminal-dot terminal-dot-yellow"></span>
-            <span class="terminal-dot terminal-dot-green"></span>
-            <span class="terminal-title">zsp</span>
-          </div>
-          <div class="terminal-body">
-            <div class="terminal-line">
-              <span class="terminal-prompt">$</span>
-              <span class="terminal-cmd">zsp publish ./my-app</span>
-            </div>
-            <div class="terminal-line terminal-output">
-              <span class="terminal-success">✓</span> Building app...
-            </div>
-            <div class="terminal-line terminal-output">
-              <span class="terminal-success">✓</span> Pushing to Zapstore...
-            </div>
-            <div class="terminal-line terminal-output">
-              <span class="terminal-success">✓</span> Published
-              <span class="terminal-muted">naddr1qq...</span>
-            </div>
-            <div class="terminal-line">
-              <span class="terminal-prompt">$</span>
-              <span class="terminal-cursor">_</span>
-            </div>
-          </div>
-        </div>
-      </div>
+				<!-- Mobile - phone image (drawn first so terminal can sit on top) -->
+				<div class="screenshot-mobile {mounted ? 'screenshot-visible' : ''}">
+					<img
+						src={`${assets}/images/studio-mobile.png`}
+						alt="Zapstore Studio on mobile"
+						class="studio-mobile-img"
+						loading="lazy"
+					/>
+				</div>
 
-      <!-- Mobile - placeholder, 3D tilt -->
-      <div class="screenshot-mobile {mounted ? 'screenshot-visible' : ''}">
-        <div class="screenshot-placeholder screenshot-placeholder-mobile">
-          <span class="placeholder-label">Mobile</span>
-        </div>
-      </div>
-    </div>
-  </div>
+				<!-- CLI - custom terminal (after mobile in DOM + translateZ so it's in front in 3D) -->
+				<div class="screenshot-cli {mounted ? 'screenshot-visible' : ''}">
+					<div class="terminal-glow">
+					<div class="terminal-window">
+						<div class="terminal-header">
+							<span class="terminal-dot terminal-dot-red"></span>
+							<span class="terminal-dot terminal-dot-yellow"></span>
+							<span class="terminal-dot terminal-dot-green"></span>
+							<span class="terminal-title">zsp</span>
+						</div>
+						<div class="terminal-body">
+							<div class="terminal-line">
+								<span class="terminal-prompt">$</span>
+								<span class="terminal-cmd">zsp publish ./my-app</span>
+							</div>
+							<div class="terminal-line terminal-output">
+								<span class="terminal-success">✓</span> Building app...
+							</div>
+							<div class="terminal-line terminal-output">
+								<span class="terminal-success">✓</span> Pushing to Zapstore...
+							</div>
+							<div class="terminal-line terminal-output">
+								<span class="terminal-success">✓</span> Published
+								<span class="terminal-muted">naddr1qq...</span>
+							</div>
+							<div class="terminal-line">
+								<span class="terminal-prompt">$</span>
+								<span class="terminal-cursor">_</span>
+							</div>
+						</div>
+					</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
 </section>
 
 <style>
-  .studio-hero {
-    padding-bottom: 2rem;
-  }
+	.studio-hero {
+		padding-bottom: 0;
+	}
 
-  /* Allow 3D to extend without clipping; section expands to fit */
-  .studio-hero-no-clip {
-    overflow: visible;
-  }
+	.studio-hero-cta {
+		min-width: 200px;
+	}
 
-  .studio-screenshots-container {
-    perspective: 800px;
-    overflow: visible;
-  }
+	/* 3D area fixed to bottom of section; overflow only on section so nothing clips the slide-in */
+	.studio-screenshots-clip {
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		height: 58%;
+		overflow: visible;
+	}
 
-  /* Wrapper: tall enough so 16:9 desktop image + 3D tilt isn't clipped (no max-height) */
-  .studio-screenshots-wrapper {
-    position: relative;
-    min-height: 280px;
-    transform-style: preserve-3d;
-    overflow: visible;
-  }
+	@media (min-width: 640px) {
+		.studio-screenshots-clip {
+			height: 60%;
+		}
+	}
 
-  /* ~16/9 of typical container width so image fits without clipping */
-  @media (min-width: 640px) {
-    .studio-screenshots-wrapper {
-      min-height: 360px;
-    }
-  }
+	@media (min-width: 1024px) {
+		.studio-screenshots-clip {
+			height: 62%;
+		}
+	}
 
-  @media (min-width: 768px) {
-    .studio-screenshots-wrapper {
-      min-height: 432px; /* 768 * 9/16 */
-    }
-  }
+	.studio-screenshots-container {
+		perspective: 800px;
+		overflow: visible;
+	}
 
-  @media (min-width: 1024px) {
-    .studio-screenshots-wrapper {
-      min-height: 576px; /* 1024 * 9/16 */
-    }
-  }
+	/* Wrapper: tall so 3D content is not clipped at top; clip happens at section (.studio-screenshots-clip) bottom */
+	.studio-screenshots-wrapper {
+		position: relative;
+		min-height: 380px;
+		transform-style: preserve-3d;
+		overflow: visible;
+	}
 
-  @media (min-width: 1280px) {
-    .studio-screenshots-wrapper {
-      min-height: 720px; /* 1280 * 9/16 */
-    }
-  }
+	@media (min-width: 640px) {
+		.studio-screenshots-wrapper {
+			min-height: 480px;
+		}
+	}
 
-  /* Base: absolute positioning + 3D like DeveloperHero */
-  .screenshot-desktop,
-  .screenshot-mobile,
-  .screenshot-cli {
-    position: absolute;
-    opacity: 0;
-    transition: opacity 0.6s ease-out, transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
-    transform-style: preserve-3d;
-  }
+	@media (min-width: 768px) {
+		.studio-screenshots-wrapper {
+			min-height: 560px;
+		}
+	}
 
-  .screenshot-visible {
-    opacity: 1;
-  }
+	@media (min-width: 1024px) {
+		.studio-screenshots-wrapper {
+			min-height: 640px;
+		}
+	}
 
-  /* Desktop - full width, 3D tilt, no border/clip on image */
-  .screenshot-desktop {
-    left: 0;
-    right: 0;
-    top: 0;
-    z-index: 3;
-    transform: rotateY(15deg) rotateX(5deg) rotateZ(-20deg);
-    transform-origin: left center;
-  }
+	@media (min-width: 1280px) {
+		.studio-screenshots-wrapper {
+			min-height: 720px;
+		}
+	}
 
-  .studio-desktop-img {
-    width: 100%;
-    height: auto;
-    max-height: none;
-    display: block;
-    aspect-ratio: 16 / 9;
-    object-fit: contain;
-  }
+	/* Base: absolute positioning + 3D; all fade in together */
+	.screenshot-desktop,
+	.screenshot-mobile,
+	.screenshot-cli {
+		position: absolute;
+		opacity: 0;
+		transition: opacity 1.25s cubic-bezier(0.33, 0, 0.2, 1);
+		transform-style: preserve-3d;
+	}
 
-  /* Mobile - left-of-right side, 3D tilt; starts higher for fall-in */
-  .screenshot-mobile {
-    right: 22%;
-    top: 10%;
-    z-index: 4;
-    width: 140px;
-    transition-delay: 100ms;
-    transform: rotateY(10deg) rotateX(3deg) rotateZ(-20deg) translateY(-48px);
-    transform-origin: right center;
-  }
+	.screenshot-visible {
+		opacity: 1;
+	}
 
-  .screenshot-mobile.screenshot-visible {
-    transform: rotateY(10deg) rotateX(3deg) rotateZ(-20deg) translateY(0);
-  }
+	/* Desktop */
+	.screenshot-desktop {
+		left: -2%;
+		right: 2%;
+		top: 56px;
+		z-index: 3;
+		transform: rotateY(12deg) rotateX(4deg) rotateZ(-8deg) translateX(-1%);
+		transform-origin: left center;
+	}
 
-  /* CLI - right side lower, 3D tilt; starts higher for fall-in */
-  .screenshot-cli {
-    right: 15%;
-    top: 40%;
-    z-index: 2;
-    width: 260px;
-    transition-delay: 200ms;
-    transform: rotateY(8deg) rotateX(4deg) rotateZ(-20deg) translateY(-48px);
-    transform-origin: right center;
-  }
+	.studio-desktop-img {
+		width: 100%;
+		height: auto;
+		max-height: none;
+		display: block;
+		aspect-ratio: 16 / 9;
+		object-fit: contain;
+	}
 
-  .screenshot-cli.screenshot-visible {
-    transform: rotateY(8deg) rotateX(4deg) rotateZ(-20deg) translateY(0);
-  }
+	/* Phone – push back in 3D; desktop: higher (small top offset) and wider */
+	.screenshot-mobile {
+		right: 8%;
+		top: 56px;
+		z-index: 2;
+		width: 185px;
+		transform: rotateY(8deg) rotateX(2deg) rotateZ(-8deg) translateZ(-40px);
+		transform-origin: right center;
+	}
 
-  .terminal-window {
-    background: hsl(240, 8%, 12%);
-    border-radius: 10px;
-    border: 0.33px solid hsl(var(--white16));
-    overflow: hidden;
-    box-shadow: 0 8px 24px hsl(var(--black33));
-  }
+	/* CLI – in front of phone: translateZ pulls it forward in 3D; solid “frosted” bg (backdrop-filter fails with transformed ancestors) */
+	.screenshot-cli {
+		right: 22%;
+		top: 146px;
+		z-index: 10;
+		width: 295px;
+		transform: rotateY(6deg) rotateX(3deg) rotateZ(-8deg) translateZ(80px);
+		transform-origin: right center;
+	}
 
-  .terminal-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 12px;
-    background: hsl(240, 6%, 16%);
-    border-bottom: 0.33px solid hsl(var(--white11));
-  }
+	.terminal-glow {
+		border-radius: 10px;
+		overflow: visible;
+		box-shadow:
+			0 0 80px 6px rgb(90 88 254 / 0.07),
+			0 0 160px 14px rgb(90 88 254 / 0.05),
+			0 0 280px 20px rgb(90 88 254 / 0.03),
+			0 12px 40px rgb(0 0 0 / 0.35);
+	}
 
-  .terminal-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-  }
+	.terminal-window {
+		background: hsl(240 10% 11% / 0.94);
+		border-radius: 10px;
+		border: 0.33px solid hsl(var(--white16));
+		overflow: hidden;
+	}
 
-  .terminal-dot-red {
-    background: #ff5f56;
-  }
+	.terminal-header {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 8px 12px;
+		background: hsl(240 8% 14% / 0.9);
+		border-bottom: 0.33px solid hsl(var(--white11));
+	}
 
-  .terminal-dot-yellow {
-    background: #ffbd2e;
-  }
+	.terminal-dot {
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		opacity: 0.66;
+	}
 
-  .terminal-dot-green {
-    background: #27c93f;
-  }
+	.terminal-dot-red {
+		background: var(--gradient-rouge);
+	}
 
-  .terminal-title {
-    margin-left: 8px;
-    font-size: 12px;
-    color: hsl(var(--white33));
-  }
+	.terminal-dot-yellow {
+		background: var(--gradient-gold);
+	}
 
-  .terminal-body {
-    padding: 12px 14px;
-    font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
-    font-size: 13px;
-    line-height: 1.6;
-  }
+	.terminal-dot-green {
+		background: var(--gradient-green);
+	}
 
-  .terminal-line {
-    margin-bottom: 2px;
-  }
+	.terminal-title {
+		margin-left: 8px;
+		font-size: 12px;
+		color: hsl(var(--white33));
+	}
 
-  .terminal-prompt {
-    color: hsl(var(--blurpleColor));
-    margin-right: 6px;
-  }
+	.terminal-body {
+		padding: 12px 14px;
+		font-family: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, monospace;
+		font-size: 13px;
+		line-height: 1.6;
+	}
 
-  .terminal-cmd {
-    color: hsl(var(--white));
-  }
+	.terminal-line {
+		margin-bottom: 2px;
+	}
 
-  .terminal-output {
-    color: hsl(var(--white66));
-    padding-left: 1.2em;
-  }
+	/* Terminal scales down on smaller screens (font, padding, dots, radius) */
+	@media (max-width: 639px) {
+		.terminal-window {
+			border-radius: 6px;
+		}
 
-  .terminal-success {
-    color: #27c93f;
-    margin-right: 6px;
-  }
+		.terminal-header {
+			gap: 3px;
+			padding: 5px 6px;
+			border-bottom-width: 0.25px;
+		}
 
-  .terminal-muted {
-    color: hsl(var(--white33));
-  }
+		.terminal-dot {
+			width: 6px;
+			height: 6px;
+		}
 
-  .terminal-cursor {
-    color: hsl(var(--white));
-    animation: blink 1s step-end infinite;
-  }
+		.terminal-title {
+			margin-left: 4px;
+			font-size: 9px;
+		}
 
-  @keyframes blink {
-    50% {
-      opacity: 0;
-    }
-  }
+		.terminal-body {
+			padding: 5px 6px;
+			font-size: 9px;
+			line-height: 1.45;
+		}
 
-  .screenshot-placeholder {
-    background: hsl(var(--gray33));
-    border: 1px dashed hsl(var(--white22));
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-  }
+		.terminal-line {
+			margin-bottom: 1px;
+		}
+	}
 
-  .screenshot-placeholder-mobile {
-    width: 100%;
-    height: 240px;
-    border-radius: 20px;
-  }
+	@media (max-width: 480px) {
+		.terminal-window {
+			border-radius: 5px;
+		}
 
-  .placeholder-label {
-    font-size: 11px;
-    color: hsl(var(--white33));
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
+		.terminal-header {
+			gap: 2px;
+			padding: 4px 5px;
+		}
 
-  /* Responsive - match DeveloperHero breakpoints */
-  @media (min-width: 640px) {
-    .screenshot-mobile {
-      width: 160px;
-    }
+		.terminal-dot {
+			width: 5px;
+			height: 5px;
+		}
 
-    .screenshot-placeholder-mobile {
-      height: 280px;
-    }
+		.terminal-title {
+			margin-left: 3px;
+			font-size: 8px;
+		}
 
-    .screenshot-cli {
-      width: 300px;
-    }
-  }
+		.terminal-body {
+			padding: 4px 5px;
+			font-size: 8px;
+			line-height: 1.4;
+		}
+	}
 
-  @media (min-width: 1024px) {
-    .screenshot-mobile {
-      width: 180px;
-      right: 12%;
-    }
+	.terminal-prompt {
+		color: hsl(var(--blurpleColor));
+		margin-right: 6px;
+	}
 
-    .screenshot-placeholder-mobile {
-      height: 320px;
-    }
+	.terminal-cmd {
+		color: hsl(var(--white));
+	}
 
-    .screenshot-cli {
-      width: 340px;
-      right: 12%;
-    }
-  }
+	.terminal-output {
+		color: hsl(var(--white66));
+		padding-left: 1.2em;
+	}
 
-  /* Mobile: show all three with smaller CLI and mobile, adjusted positions */
-  @media (max-width: 639px) {
-    .screenshot-desktop {
-      transform: rotateY(12deg) rotateX(4deg) rotateZ(-20deg);
-    }
+	.terminal-success {
+		color: #27c93f;
+		margin-right: 6px;
+	}
 
-    .screenshot-mobile {
-      width: 100px;
-      right: 8%;
-      top: 6%;
-      transform: rotateY(8deg) rotateX(2deg) rotateZ(-20deg) translateY(-36px);
-    }
+	.terminal-muted {
+		color: hsl(var(--white33));
+	}
 
-    .screenshot-mobile.screenshot-visible {
-      transform: rotateY(8deg) rotateX(2deg) rotateZ(-20deg) translateY(0);
-    }
+	.terminal-cursor {
+		color: hsl(var(--white));
+		animation: blink 1s step-end infinite;
+	}
 
-    .screenshot-placeholder-mobile {
-      height: 160px;
-    }
+	@keyframes blink {
+		50% {
+			opacity: 0;
+		}
+	}
 
-    .screenshot-cli {
-      width: 180px;
-      right: 4%;
-      top: 32%;
-      transform: rotateY(6deg) rotateX(3deg) rotateZ(-20deg) translateY(-36px);
-    }
+	.screenshot-placeholder {
+		background: hsl(var(--gray33));
+		border: 1px dashed hsl(var(--white22));
+		border-radius: 12px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+	}
 
-    .screenshot-cli.screenshot-visible {
-      transform: rotateY(6deg) rotateX(3deg) rotateZ(-20deg) translateY(0);
-    }
-  }
+	.studio-mobile-img {
+		width: 100%;
+		height: auto;
+		display: block;
+		object-fit: contain;
+		border-radius: 20px;
+		filter: drop-shadow(0 0 24px rgb(90 88 254 / 0.1)) drop-shadow(0 8px 24px rgb(0 0 0 / 0.3));
+	}
+
+	.screenshot-placeholder-mobile {
+		width: 100%;
+		height: 240px;
+		border-radius: 20px;
+	}
+
+	.placeholder-label {
+		font-size: 11px;
+		color: hsl(var(--white33));
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+	}
+
+	/* Responsive - phone slightly bigger at larger breakpoints; more right */
+	@media (min-width: 640px) {
+		.screenshot-mobile {
+			width: 198px;
+			right: 0;
+			top: 20px;
+		}
+
+		.screenshot-placeholder-mobile {
+			height: 300px;
+		}
+
+		.screenshot-cli {
+			width: 335px;
+			right: 24%;
+			top: 166px;
+			transform: rotateY(6deg) rotateX(3deg) rotateZ(-8deg) translateZ(80px);
+		}
+	}
+
+	@media (min-width: 1024px) {
+		.screenshot-mobile {
+			width: 268px;
+			right: 0;
+			top: 12px;
+			transform: rotateY(8deg) rotateX(2deg) rotateZ(-8deg) translateZ(-40px);
+		}
+
+		.screenshot-placeholder-mobile {
+			height: 360px;
+		}
+
+		.screenshot-cli {
+			width: 348px;
+			right: 22%;
+			top: 146px;
+			transform: rotateY(6deg) rotateX(3deg) rotateZ(-8deg) translateZ(80px);
+		}
+	}
+
+	/* Mobile: show all three; phone more right and higher; terminal narrower and scales smaller */
+	@media (max-width: 639px) {
+		.screenshot-desktop {
+			top: 52px;
+			left: 0;
+			right: 6%;
+			transform: rotateY(10deg) rotateX(3deg) rotateZ(-8deg) translateX(1%);
+		}
+
+		.screenshot-mobile {
+			width: 128px;
+			right: 2%;
+			top: calc(1% + 52px);
+			transform: rotateY(6deg) rotateX(2deg) rotateZ(-8deg) translateZ(-40px);
+		}
+
+		.screenshot-placeholder-mobile {
+			height: 180px;
+		}
+
+		.screenshot-cli {
+			width: 162px;
+			right: 22%;
+			top: 156px;
+			transform: rotateY(5deg) rotateX(2deg) rotateZ(-8deg) translateZ(80px);
+		}
+	}
 </style>

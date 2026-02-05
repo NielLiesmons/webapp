@@ -9,6 +9,7 @@
  * - Background: watchEvents for kind 0 (defaults), kind 3 & 30000 (user), then fetch kind 0 for contacts
  */
 
+import { writable } from 'svelte/store';
 import { queryStore, queryStoreOne, watchEvents, fetchEvents } from '$lib/nostr';
 import { parseProfile } from '$lib/nostr/models';
 import { nip19 } from 'nostr-tools';
@@ -53,14 +54,48 @@ function npubToPubkey(npub: string): string | null {
 
 const DEFAULT_PUBKEYS = DEFAULT_NPUBS.map(npubToPubkey).filter((pk): pk is string => !!pk);
 
+/** Zapstore pubkey (first default profile) — one of the first cached profiles in the app */
+export const ZAPSTORE_PUBKEY = DEFAULT_PUBKEYS[0]!;
+
+export interface ZapstoreProfile {
+	picture: string;
+	name: string;
+}
+
+/** Reactive store: Zapstore profile (picture, name) when loaded from EventStore/relays. Null until then. */
+export const zapstoreProfileStore = writable<ZapstoreProfile | null>(null);
+
+function setZapstoreProfileFromEvent(event: { content: string } | null): void {
+	if (!event) return;
+	const p = parseProfile(event);
+	zapstoreProfileStore.set({
+		picture: p.picture ?? ZAPSTORE_ICON,
+		name: p.displayName ?? p.name ?? 'Zapstore'
+	});
+}
+
 /** Started once so default kind 0 events populate EventStore in background */
 let defaultProfilesWatchStarted = false;
 function startWatchDefaultProfiles(): void {
 	if (defaultProfilesWatchStarted) return;
 	defaultProfilesWatchStarted = true;
+
+	// Sync: if Zapstore profile already in EventStore (e.g. from cache), set store immediately
+	const zapstoreEvent = queryStoreOne({
+		kinds: [KIND_PROFILE],
+		authors: [ZAPSTORE_PUBKEY],
+		limit: 1
+	});
+	setZapstoreProfileFromEvent(zapstoreEvent);
+
+	const zapstoreLower = ZAPSTORE_PUBKEY.toLowerCase();
 	watchEvents(
 		{ kinds: [KIND_PROFILE], authors: [...DEFAULT_PUBKEYS], limit: 10 },
-		{ relays: SOCIAL_RELAYS, timeout: 8000 }
+		{ relays: SOCIAL_RELAYS, timeout: 8000 },
+		(events) => {
+			const zapstore = events.find((e) => e.pubkey?.toLowerCase() === zapstoreLower);
+			if (zapstore) setZapstoreProfileFromEvent(zapstore);
+		}
 	);
 }
 

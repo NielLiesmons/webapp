@@ -7,6 +7,8 @@
   import { onMount } from "svelte";
   import { nip19 } from "nostr-tools";
   import { getCurrentPubkey, getIsConnecting, connect, signOut } from "$lib/stores/auth.svelte";
+  import { queryStoreOne, fetchProfile } from "$lib/nostr";
+  import { parseProfile } from "$lib/nostr/models";
   import ProfilePic from "$lib/components/common/ProfilePic.svelte";
   import SearchModal from "$lib/components/common/SearchModal.svelte";
   import GetStartedModal from "$lib/components/modals/GetStartedModal.svelte";
@@ -38,6 +40,43 @@
   const profileHref = $derived(pubkey ? "/profile/" + nip19.npubEncode(pubkey) : "#");
   const isConnecting = $derived(getIsConnecting());
   const isConnected = $derived(pubkey !== null);
+
+  // Current user profile (local-first: EventStore then background fetch) for header avatar
+  let currentUserProfile = $state<{ picture: string; name: string } | null>(null);
+  $effect(() => {
+    const pk = getCurrentPubkey();
+    if (!pk) {
+      currentUserProfile = null;
+      return;
+    }
+    const ev = queryStoreOne({ kinds: [0], authors: [pk], limit: 1 });
+    if (ev?.content) {
+      try {
+        const p = parseProfile(ev);
+        currentUserProfile = {
+          picture: p.picture ?? "",
+          name: p.displayName ?? p.name ?? "",
+        };
+      } catch {
+        currentUserProfile = null;
+      }
+    } else {
+      currentUserProfile = null;
+    }
+    fetchProfile(pk).then((e) => {
+      if (e?.content) {
+        try {
+          const p = parseProfile(e);
+          currentUserProfile = {
+            picture: p.picture ?? "",
+            name: p.displayName ?? p.name ?? "",
+          };
+        } catch {
+          // keep existing
+        }
+      }
+    });
+  });
 
   function handleClickOutside(event: MouseEvent) {
     const target = event.target as HTMLElement;
@@ -150,13 +189,9 @@
       <!-- Left: Logo or Menu + Page Title -->
       <div class="header-side flex items-center flex-shrink-0 min-w-0">
         {#if variant === "browse" || variant === "studio"}
-          <!-- Browse/Studio variant: Menu button + Page title -->
-          <div
-            class="menu-container"
-            bind:this={menuContainer}
-            role="navigation"
-            aria-label="Main menu"
-          >
+          <!-- Browse/Studio variant: Menu button + Page title (wrapper so click-outside sees both) -->
+          <div class="menu-trigger-wrap flex items-center min-w-0" bind:this={menuContainer} role="navigation" aria-label="Main menu">
+            <div class="menu-container">
             <button
               type="button"
               class="menu-button"
@@ -194,7 +229,12 @@
                   </a>
                   {#if isConnected}
                     <a href={profileHref} class="menu-user-pic-btn" onclick={closeMenu}>
-                      <ProfilePic pubkey={pubkey} size="md" />
+                      <ProfilePic
+                        pubkey={pubkey}
+                        pictureUrl={currentUserProfile?.picture || undefined}
+                        name={currentUserProfile?.name || undefined}
+                        size="md"
+                      />
                     </a>
                   {/if}
                 </div>
@@ -207,13 +247,27 @@
                 <div class="menu-section">
                   <a href="/discover" class="menu-section-link" onclick={closeMenu}>Discover</a>
                   <nav class="menu-subnav">
-                    <a href="/discover" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu}>Apps</a>
+                    <a href="/apps" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu}>Apps</a>
                     <a href="/stacks" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu}>Stacks</a>
                   </nav>
                 </div>
 
                 <div class="menu-section">
                   <a href="/studio" class="menu-section-link" onclick={closeMenu}>Studio</a>
+                  <nav class="menu-subnav">
+                    <a href="/studio#quickstart" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu}>Quickstart</a>
+                    <a href="/studio/reachkit" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu}>ReachKit</a>
+                  </nav>
+                </div>
+
+                <div class="menu-section">
+                  <span class="menu-section-label">Contact</span>
+                  <nav class="menu-subnav">
+                    <a href="https://github.com/zapstore/zapstore" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu} target="_blank" rel="noopener noreferrer">GitHub</a>
+                    <a href="https://signal.group/#CjQKIK20nMOglqNT8KYw4ZeyChsvA14TTcjtjuC2VF6j6nB5EhDLZ7pQHvOeopr36jq431ow" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu} target="_blank" rel="noopener noreferrer">Tech Support on Signal</a>
+                    <a href="https://npub.world/npub10r8xl2njyepcw2zwv3a6dyufj4e4ajx86hz6v4ehu4gnpupxxp7stjt2p8" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu} target="_blank" rel="noopener noreferrer">Follow us on Nostr</a>
+                    <a href="https://x.com/zapstore_" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu} target="_blank" rel="noopener noreferrer">Follow us on Twitter</a>
+                  </nav>
                 </div>
 
                 {#if !isConnected}
@@ -226,24 +280,32 @@
                 {/if}
               </div>
             {/if}
-          </div>
+            </div>
 
-          {#if variant === "studio" || pageTitle === "Studio"}
-            <a href="/studio" class="flex items-center gap-3 ml-1">
-              <svg width="15" height="20" viewBox="64 64 15 20" fill="none" xmlns="http://www.w3.org/2000/svg" class="h-6 lg:h-7 w-auto flex-shrink-0">
-                <defs>
-                  <linearGradient id="header-studio-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" style="stop-color: hsl(252, 100%, 72%);" />
-                    <stop offset="100%" style="stop-color: hsl(241, 100%, 68%);" />
-                  </linearGradient>
-                </defs>
-                <path d="M71.4271 64.0009C71.4756 63.9997 71.5243 63.9997 71.5728 64.0009C71.7346 64.0049 71.8944 64.0799 71.9931 64.2256L74.8616 68.4602C74.8676 68.4691 74.8732 68.4781 74.8785 68.4872C74.9007 68.5253 74.9208 68.5646 74.9462 68.6007L74.9542 68.612C75.1988 68.9609 74.9102 69.4216 74.4734 69.3795L73.3883 69.275C73.0394 69.2414 72.7583 69.5398 72.8303 69.8674L73.4327 73.1352C73.4589 73.2775 73.5317 73.4213 73.6767 73.4593C73.77 73.4838 73.872 73.4837 73.9725 73.4529L78.3235 71.9401C78.7191 71.8192 79.094 72.1663 78.9789 72.547L75.8194 83.6386C75.6627 84.1567 74.8757 84.1035 74.8039 83.57L74.0919 78.907C74.0625 78.7147 73.8297 78.6031 73.6396 78.5368L71.7235 77.8667C71.5791 77.8162 71.4207 77.8162 71.2763 77.8667L69.3604 78.5368C69.1703 78.6031 68.9373 78.7148 68.908 78.9071L68.1961 83.57C68.1243 84.1035 67.3373 84.1567 67.1806 83.6386L64.0211 72.547C63.906 72.1663 64.2808 71.8192 64.6765 71.9401L69.0275 73.4529C69.128 73.4837 69.2299 73.4838 69.3231 73.4593C69.4682 73.4213 69.5409 73.2775 69.5672 73.1352L70.1697 69.8674C70.2417 69.5398 69.9606 69.2414 69.6117 69.275L68.5264 69.3795C68.0897 69.4215 67.8012 68.9608 68.0458 68.612L68.0539 68.6005C68.079 68.5646 68.0989 68.5256 68.121 68.4879C68.1265 68.4786 68.1323 68.4694 68.1384 68.4602L71.0069 64.2256C71.1056 64.0799 71.2653 64.005 71.4271 64.0009Z" fill="url(#header-studio-gradient)" />
-              </svg>
+          {#if pageTitle && pageTitle !== "Profile"}
+            <button
+              type="button"
+              class="page-title-tap flex items-center gap-3 ml-1"
+              onclick={(e) => { e.stopPropagation(); toggleMenu(); }}
+              aria-label="Open menu"
+            >
+              {#if variant === "studio" || pageTitle === "Studio"}
+                <svg width="15" height="20" viewBox="64 64 15 20" fill="none" xmlns="http://www.w3.org/2000/svg" class="h-6 lg:h-7 w-auto flex-shrink-0">
+                  <defs>
+                    <linearGradient id="header-studio-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" style="stop-color: hsl(252, 100%, 72%);" />
+                      <stop offset="100%" style="stop-color: hsl(241, 100%, 68%);" />
+                    </linearGradient>
+                  </defs>
+                  <path d="M71.4271 64.0009C71.4756 63.9997 71.5243 63.9997 71.5728 64.0009C71.7346 64.0049 71.8944 64.0799 71.9931 64.2256L74.8616 68.4602C74.8676 68.4691 74.8732 68.4781 74.8785 68.4872C74.9007 68.5253 74.9208 68.5646 74.9462 68.6007L74.9542 68.612C75.1988 68.9609 74.9102 69.4216 74.4734 69.3795L73.3883 69.275C73.0394 69.2414 72.7583 69.5398 72.8303 69.8674L73.4327 73.1352C73.4589 73.2775 73.5317 73.4213 73.6767 73.4593C73.77 73.4838 73.872 73.4837 73.9725 73.4529L78.3235 71.9401C78.7191 71.8192 79.094 72.1663 78.9789 72.547L75.8194 83.6386C75.6627 84.1567 74.8757 84.1035 74.8039 83.57L74.0919 78.907C74.0625 78.7147 73.8297 78.6031 73.6396 78.5368L71.7235 77.8667C71.5791 77.8162 71.4207 77.8162 71.2763 77.8667L69.3604 78.5368C69.1703 78.6031 68.9373 78.7148 68.908 78.9071L68.1961 83.57C68.1243 84.1035 67.3373 84.1567 67.1806 83.6386L64.0211 72.547C63.906 72.1663 64.2808 71.8192 64.6765 71.9401L69.0275 73.4529C69.128 73.4837 69.2299 73.4838 69.3231 73.4593C69.4682 73.4213 69.5409 73.2775 69.5672 73.1352L70.1697 69.8674C70.2417 69.5398 69.9606 69.2414 69.6117 69.275L68.5264 69.3795C68.0897 69.4215 67.8012 68.9608 68.0458 68.612L68.0539 68.6005C68.079 68.5646 68.0989 68.5256 68.121 68.4879C68.1265 68.4786 68.1323 68.4694 68.1384 68.4602L71.0069 64.2256C71.1056 64.0799 71.2653 64.005 71.4271 64.0009Z" fill="url(#header-studio-gradient)" />
+                </svg>
+              {/if}
               <span class="page-title font-semibold text-lg lg:text-xl tracking-tight">{pageTitle}</span>
-            </a>
+            </button>
           {:else if pageTitle}
             <span class="page-title font-semibold text-lg lg:text-xl tracking-tight ml-2">{pageTitle}</span>
           {/if}
+          </div>
         {:else}
           <!-- Landing variant: Logo + text that opens menu -->
           <div class="menu-container logo-menu-container" bind:this={menuContainer} role="navigation" aria-label="Main menu">
@@ -287,7 +349,12 @@
                   </a>
                   {#if isConnected}
                     <a href={profileHref} class="menu-user-pic" onclick={closeMenu}>
-                      <ProfilePic pubkey={pubkey} size="md" />
+                      <ProfilePic
+                        pubkey={pubkey}
+                        pictureUrl={currentUserProfile?.picture || undefined}
+                        name={currentUserProfile?.name || undefined}
+                        size="md"
+                      />
                     </a>
                   {/if}
                 </div>
@@ -300,13 +367,27 @@
                 <div class="menu-section">
                   <a href="/discover" class="menu-section-link" onclick={closeMenu}>Discover</a>
                   <nav class="menu-subnav">
-                    <a href="/discover" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu}>Apps</a>
+                    <a href="/apps" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu}>Apps</a>
                     <a href="/stacks" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu}>Stacks</a>
                   </nav>
                 </div>
 
                 <div class="menu-section">
                   <a href="/studio" class="menu-section-link" onclick={closeMenu}>Studio</a>
+                  <nav class="menu-subnav">
+                    <a href="/studio#quickstart" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu}>Quickstart</a>
+                    <a href="/studio/reachkit" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu}>ReachKit</a>
+                  </nav>
+                </div>
+
+                <div class="menu-section">
+                  <span class="menu-section-label">Contact</span>
+                  <nav class="menu-subnav">
+                    <a href="https://github.com/zapstore/zapstore" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu} target="_blank" rel="noopener noreferrer">GitHub</a>
+                    <a href="https://signal.group/#CjQKIK20nMOglqNT8KYw4ZeyChsvA14TTcjtjuC2VF6j6nB5EhDLZ7pQHvOeopr36jq431ow" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu} target="_blank" rel="noopener noreferrer">Tech Support on Signal</a>
+                    <a href="https://npub.world/npub10r8xl2njyepcw2zwv3a6dyufj4e4ajx86hz6v4ehu4gnpupxxp7stjt2p8" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu} target="_blank" rel="noopener noreferrer">Follow us on Nostr</a>
+                    <a href="https://x.com/zapstore_" class="menu-sublink text-sm font-medium text-white/66" onclick={closeMenu} target="_blank" rel="noopener noreferrer">Follow us on Twitter</a>
+                  </nav>
                 </div>
 
                 {#if !isConnected}
@@ -335,9 +416,7 @@
           onclick={openSearch}
           class={cn(
             "search-bar-btn flex items-center gap-2 relative z-10 cursor-pointer text-base",
-            variant === "studio"
-              ? "search-bar-studio h-10 pl-3 pr-3"
-              : "search-bar-width gap-3 pl-2.5 pr-3 sm:pl-3 sm:pr-4 h-10 min-w-0 lg:min-w-fit"
+            "search-bar-width gap-3 pl-2.5 pr-3 sm:pl-3 sm:pr-4 h-10 min-w-0 lg:min-w-fit"
           )}
           style="border-color: hsl(var(--white16)); pointer-events: auto;"
         >
@@ -361,7 +440,12 @@
           <!-- Profile Avatar with Dropdown -->
           <div class="relative profile-dropdown flex items-center">
             <button type="button" onclick={toggleDropdown} class="profile-btn">
-              <ProfilePic pubkey={pubkey} size="md" />
+              <ProfilePic
+                pubkey={pubkey}
+                pictureUrl={currentUserProfile?.picture || undefined}
+                name={currentUserProfile?.name || undefined}
+                size="md"
+              />
             </button>
 
             {#if dropdownOpen}
@@ -464,22 +548,21 @@
     color: hsl(var(--white));
   }
 
+  .page-title-tap {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    text-align: left;
+  }
+
+  .page-title-tap:hover {
+    opacity: 0.85;
+  }
+
   /* Studio: search bar 16px from CTA (nav has gap-6 = 24px; -8px gives 16px) */
   .header-search-studio-gap {
     margin-right: -8px;
-  }
-
-  .search-bar-studio {
-    min-width: 260px;
-    max-width: 320px;
-    width: 100%;
-    border: 0.33px solid hsl(var(--white16));
-    border-radius: var(--radius-16);
-    background-color: transparent;
-  }
-
-  .search-bar-studio:hover {
-    background-color: transparent;
   }
 
   .menu-backdrop {
@@ -630,7 +713,7 @@
   .menu-section-link {
     display: block;
     padding: 6px 10px;
-    font-size: 0.9375rem;
+    font-size: 1rem;
     font-weight: 600;
     color: hsl(var(--white));
     text-decoration: none;
@@ -640,6 +723,14 @@
 
   .menu-section-link:hover {
     background-color: hsl(var(--white8));
+  }
+
+  .menu-section-label {
+    display: block;
+    padding: 6px 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: hsl(var(--white));
   }
 
   .menu-subnav {
