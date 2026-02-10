@@ -12,18 +12,12 @@
 import { writable } from 'svelte/store';
 import { queryStore, queryStoreOne, watchEvents, fetchEvents } from '$lib/nostr';
 import { parseProfile } from '$lib/nostr/models';
+import { PROFILE_RELAYS } from '$lib/config';
 import { nip19 } from 'nostr-tools';
 
 const KIND_PROFILE = 0;
 const KIND_CONTACT_LIST = 3;
 const KIND_FOLLOW_SET = 30000;
-
-const SOCIAL_RELAYS = [
-	'wss://relay.damus.io',
-	'wss://nos.lol',
-	'wss://relay.nostr.band',
-	'wss://relay.zapstore.dev'
-];
 
 export interface SearchResult {
 	pubkey: string;
@@ -91,7 +85,7 @@ function startWatchDefaultProfiles(): void {
 	const zapstoreLower = ZAPSTORE_PUBKEY.toLowerCase();
 	watchEvents(
 		{ kinds: [KIND_PROFILE], authors: [...DEFAULT_PUBKEYS], limit: 10 },
-		{ relays: SOCIAL_RELAYS, timeout: 8000 },
+		{ relays: PROFILE_RELAYS, timeout: 8000 },
 		(events) => {
 			const zapstore = events.find((e) => e.pubkey?.toLowerCase() === zapstoreLower);
 			if (zapstore) setZapstoreProfileFromEvent(zapstore);
@@ -108,7 +102,7 @@ function startWatchUserContacts(userPubkey: string): void {
 	// Load kind 3 and 30000 into store (background)
 	watchEvents(
 		{ kinds: [KIND_CONTACT_LIST], authors: [userPubkey], limit: 1 },
-		{ relays: SOCIAL_RELAYS, timeout: 6000 },
+		{ relays: PROFILE_RELAYS, timeout: 6000 },
 		(contactEvents) => {
 			const contactList = contactEvents[0];
 			if (!contactList) return;
@@ -119,14 +113,14 @@ function startWatchUserContacts(userPubkey: string): void {
 			// Fetch kind 0 for contacts so they appear in store
 			fetchEvents(
 				{ kinds: [KIND_PROFILE], authors: pubkeys, limit: 500 },
-				{ relays: SOCIAL_RELAYS, timeout: 5000 }
-			).catch(() => {});
+				{ relays: PROFILE_RELAYS, timeout: 5000 }
+			).catch(() => { });
 		}
 	);
 
 	watchEvents(
 		{ kinds: [KIND_FOLLOW_SET], authors: [userPubkey], limit: 50 },
-		{ relays: SOCIAL_RELAYS, timeout: 6000 },
+		{ relays: PROFILE_RELAYS, timeout: 6000 },
 		(followEvents) => {
 			const allP: string[] = [];
 			for (const ev of followEvents) {
@@ -137,8 +131,8 @@ function startWatchUserContacts(userPubkey: string): void {
 			if (allP.length === 0) return;
 			fetchEvents(
 				{ kinds: [KIND_PROFILE], authors: allP, limit: 500 },
-				{ relays: SOCIAL_RELAYS, timeout: 5000 }
-			).catch(() => {});
+				{ relays: PROFILE_RELAYS, timeout: 5000 }
+			).catch(() => { });
 		}
 	);
 }
@@ -282,7 +276,7 @@ export function createProfileSearch(userPubkey: string): ProfileSearchService {
 		getProfileCount: () => 0,
 		getPubkeyCount: () => contactPubkeys.size,
 		isInLists: (pubkey: string) => contactPubkeys.has(pubkey),
-		addProfile: () => {}
+		addProfile: () => { }
 	};
 }
 
@@ -291,12 +285,12 @@ const profileSearchCache = new Map<string, ProfileSearchService>();
 export function getProfileSearch(userPubkey: string | null): ProfileSearchService {
 	if (!userPubkey) {
 		return {
-			init: async () => {},
+			init: async () => { },
 			search: async (query: string) => searchFromStore(null, query),
 			getProfileCount: () => 0,
 			getPubkeyCount: () => 0,
 			isInLists: () => false,
-			addProfile: () => {}
+			addProfile: () => { }
 		};
 	}
 	if (!profileSearchCache.has(userPubkey)) {

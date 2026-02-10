@@ -10,17 +10,11 @@
  */
 
 import { fetchEvents } from '$lib/nostr';
+import { DEFAULT_SOCIAL_RELAYS } from '$lib/config';
 import type { Filter, NostrEvent } from 'nostr-tools';
 
 const KIND_USER_EMOJI_LIST = 10030;
 const KIND_EMOJI_SET = 30030;
-
-const SOCIAL_RELAYS = [
-	'wss://relay.damus.io',
-	'wss://nos.lol',
-	'wss://relay.nostr.band',
-	'wss://relay.zapstore.dev'
-];
 
 interface UnicodeEmoji {
 	shortcode: string;
@@ -336,10 +330,10 @@ export function createEmojiSearch(userPubkey: string | null = null) {
 					limit: 1
 				};
 
-								const userEmojiListEvents = await fetchEvents(emojiListFilter, {
-									timeout: 5000,
-									relays: SOCIAL_RELAYS
-								});
+				const userEmojiListEvents = await fetchEvents(emojiListFilter, {
+					timeout: 5000,
+					relays: DEFAULT_SOCIAL_RELAYS
+				});
 
 				// Fetch user's emoji sets (kind 30030)
 				const emojiSetFilter: Filter = {
@@ -348,10 +342,10 @@ export function createEmojiSearch(userPubkey: string | null = null) {
 					limit: 50
 				};
 
-								const userEmojiSets = await fetchEvents(emojiSetFilter, {
-									timeout: 5000,
-									relays: SOCIAL_RELAYS
-								});
+				const userEmojiSets = await fetchEvents(emojiSetFilter, {
+					timeout: 5000,
+					relays: DEFAULT_SOCIAL_RELAYS
+				});
 
 				// Process user emoji list
 				if (userEmojiListEvents && userEmojiListEvents.length > 0) {
@@ -387,7 +381,7 @@ export function createEmojiSearch(userPubkey: string | null = null) {
 
 								const setEvents = await fetchEvents(setFilter, {
 									timeout: 3000,
-									relays: SOCIAL_RELAYS
+									relays: DEFAULT_SOCIAL_RELAYS
 								});
 
 								if (setEvents && setEvents.length > 0) {
