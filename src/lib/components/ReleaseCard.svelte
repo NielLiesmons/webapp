@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Release } from '$lib/nostr';
+  import { renderMarkdown } from '$lib/utils/markdown';
   
   interface Props {
     release: Release;
@@ -23,7 +24,9 @@
   </div>
   
   {#if release.releaseNotes}
-    <p class="release-notes">{release.releaseNotes}</p>
+    <div class="release-notes prose prose-invert max-w-none">
+      {@html renderMarkdown(release.releaseNotes)}
+    </div>
   {/if}
 </div>
 
@@ -55,6 +58,13 @@
     font-size: 0.875rem;
     color: var(--color-text-secondary, #6b7280);
     margin: 0.75rem 0 0;
-    white-space: pre-wrap;
+  }
+
+  .release-notes :global(p:first-child) {
+    margin-top: 0;
+  }
+
+  .release-notes :global(p:last-child) {
+    margin-bottom: 0;
   }
 </style>

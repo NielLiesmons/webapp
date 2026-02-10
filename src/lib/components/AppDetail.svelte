@@ -5,6 +5,7 @@
 	import type { App, Release } from '$lib/nostr';
 	import { queryStoreOne, watchEvent, parseRelease, initNostrService } from '$lib/nostr';
 	import { EVENT_KINDS, DEFAULT_CATALOG_RELAYS } from '$lib/config';
+	import { renderMarkdown } from '$lib/utils/markdown';
 
 	interface Props {
 		app: App;
@@ -82,8 +83,8 @@
 		</div>
 	</header>
 
-	<section class="app-description">
-		<p>{app.description}</p>
+	<section class="app-description prose prose-invert max-w-none">
+		{@html renderMarkdown(app.description)}
 	</section>
 
 	{#if app.images.length > 0}
@@ -190,12 +191,8 @@
 
 	.app-description {
 		margin-bottom: 2rem;
-	}
-
-	.app-description p {
 		color: var(--color-text-secondary, #4b5563);
 		line-height: 1.7;
-		white-space: pre-wrap;
 	}
 
 	.app-screenshots {

@@ -37,7 +37,7 @@ async function fetchEvents(filter: Filter): Promise<Event[]> {
 		const events: Event[] = [];
 		let resolved = false;
 
-		const sub = p.subscribeMany(relays, filter, {
+		const sub = p.subscribeMany(relays, [filter], {
 			onevent(event) {
 				events.push(event);
 			},

@@ -41,6 +41,7 @@
     "applesauce-signers": "^5.0.0",
     "idb": "^8.0.0",
     "lucide-svelte": "^0.511.0",
+    "marked": "^17.0.1",
     "mdsvex": "^0.12.6",
     "nostr-tools": "~2.19",
     "rehype-slug": "^6.0.0",

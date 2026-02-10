@@ -38,6 +38,7 @@
   import { createSearchProfilesFunction, ZAPSTORE_PUBKEY } from "$lib/services/profile-search";
   import { createSearchEmojisFunction } from "$lib/services/emoji-search";
   import { getCurrentPubkey, getIsSignedIn, signEvent } from "$lib/stores/auth.svelte";
+  import { renderMarkdown } from "$lib/utils/markdown";
 
   let { data }: { data: PageData } = $props();
 
@@ -857,7 +858,7 @@
     <!-- Description -->
     <div class="description-container" class:expanded={descriptionExpanded}>
       <div class="app-description prose prose-invert max-w-none" use:checkTruncation>
-        <p>{app.description}</p>
+        {@html renderMarkdown(app.description)}
       </div>
       {#if isTruncated && !descriptionExpanded}
         <div class="description-fade"></div>
@@ -1132,7 +1133,7 @@
                 {#if release.notes}
                   <div class="release-notes-container" class:expanded={notesExpanded}>
                     <div class="release-notes prose prose-invert max-w-none" class:release-notes-collapsed={!notesExpanded}>
-                      {release.notes}
+                      {@html renderMarkdown(release.notes)}
                     </div>
                     {#if !notesExpanded}
                       <button
@@ -1699,8 +1700,58 @@
     font-size: 0.875rem;
     line-height: 1.5;
     color: hsl(var(--foreground) / 0.9);
-    white-space: pre-wrap;
     margin: 0;
+  }
+
+  .release-notes :global(p:first-child) {
+    margin-top: 0;
+  }
+
+  .release-notes :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
+  .release-notes :global(ul),
+  .release-notes :global(ol) {
+    padding-left: 1.25em;
+  }
+
+  .release-notes :global(h1),
+  .release-notes :global(h2),
+  .release-notes :global(h3),
+  .release-notes :global(h4),
+  .release-notes :global(h5),
+  .release-notes :global(h6) {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    margin-top: 0.75em;
+    margin-bottom: 0.25em;
+  }
+
+  .release-notes :global(h1:first-child),
+  .release-notes :global(h2:first-child),
+  .release-notes :global(h3:first-child) {
+    margin-top: 0;
+  }
+
+  .release-notes :global(code) {
+    font-size: 0.8125rem;
+    padding: 0.125em 0.3em;
+    border-radius: 4px;
+    background-color: hsl(var(--white8));
+  }
+
+  .release-notes :global(pre) {
+    font-size: 0.8125rem;
+    padding: 0.75em 1em;
+    border-radius: 8px;
+    background-color: hsl(var(--white8));
+    overflow-x: auto;
+  }
+
+  .release-notes :global(pre code) {
+    padding: 0;
+    background: none;
   }
 
   .release-notes-container:not(.expanded) {
