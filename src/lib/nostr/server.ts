@@ -125,38 +125,46 @@ export async function fetchAppsByReleases(
 
 	console.log(`[Server] Found ${appRefs.size} unique app references`);
 
-	// Step 3: Fetch all referenced apps in parallel
+	// Step 3: Fetch all referenced apps in batched requests (grouped by pubkey)
 	const apps: App[] = [];
 	if (appRefs.size > 0) {
-		const refs = Array.from(appRefs.values());
+		// Group refs by pubkey for efficient batching
+		const refsByPubkey = new Map<string, string[]>();
+		for (const [, ref] of appRefs) {
+			const existing = refsByPubkey.get(ref.pubkey) || [];
+			existing.push(ref.identifier);
+			refsByPubkey.set(ref.pubkey, existing);
+		}
 
-		// Fetch apps in parallel batches
-		const BATCH_SIZE = 20;
-		for (let i = 0; i < refs.length; i += BATCH_SIZE) {
-			const batch = refs.slice(i, i + BATCH_SIZE);
-
-			const appPromises = batch.map(async (ref) => {
-				const events = await fetchEvents({
-					kinds: [EVENT_KINDS.APP],
-					authors: [ref.pubkey],
-					'#d': [ref.identifier],
-					...PLATFORM_FILTER
-				});
-				return events;
+		// Fetch all apps in parallel (one request per pubkey group)
+		const fetchPromises = Array.from(refsByPubkey.entries()).map(async ([pubkey, identifiers]) => {
+			const events = await fetchEvents({
+				kinds: [EVENT_KINDS.APP],
+				authors: [pubkey],
+				'#d': identifiers,
+				...PLATFORM_FILTER
 			});
+			return events;
+		});
 
-			const results = await Promise.all(appPromises);
-			for (const events of results) {
-				if (events.length > 0) {
-					// Get most recent version (replaceable event)
-					const sorted = events.sort((a, b) => b.created_at - a.created_at);
-					apps.push(parseApp(sorted[0] as unknown as import('nostr-tools').NostrEvent));
+		const results = await Promise.all(fetchPromises);
+		for (const events of results) {
+			if (events.length > 0) {
+				// Get most recent version for each unique d-tag (replaceable events)
+				const byDTag = new Map<string, Event>();
+				for (const event of events) {
+					const dTag = event.tags.find((t) => t[0] === 'd')?.[1] || '';
+					const existing = byDTag.get(dTag);
+					if (!existing || event.created_at > existing.created_at) {
+						byDTag.set(dTag, event);
+					}
+				}
+				for (const event of byDTag.values()) {
+					apps.push(parseApp(event as unknown as import('nostr-tools').NostrEvent));
 				}
 			}
 		}
 	}
-
-	console.log(`[Server] Resolved ${apps.length} apps`);
 
 	// Parse releases
 	const releases = releaseEvents.map((e) =>

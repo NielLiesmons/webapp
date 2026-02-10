@@ -625,23 +625,37 @@ export async function fetchAppsByReleases(
 
 	console.log(`[NostrService] Found ${appRefs.size} unique app references`);
 
-	// Step 3: Resolve apps using fetchEvent (EventStore → IndexedDB → Relays)
+	// Step 3: Resolve apps in a single batched request
+	// Group by pubkey to create efficient filters
+	const refsByPubkey = new Map<string, string[]>();
+	for (const [, ref] of appRefs) {
+		const existing = refsByPubkey.get(ref.pubkey) || [];
+		existing.push(ref.identifier);
+		refsByPubkey.set(ref.pubkey, existing);
+	}
+
+	// Fetch all apps in parallel batches (one request per pubkey group)
 	const apps: NostrEvent[] = [];
 
-	for (const [, ref] of appRefs) {
-		if (signal?.aborted) break;
+	if (refsByPubkey.size > 0 && !signal?.aborted) {
+		const fetchPromises = Array.from(refsByPubkey.entries()).map(async ([pubkey, identifiers]) => {
+			// Fetch all apps from this pubkey in one request
+			const filter: Filter = {
+				kinds: [32267],
+				authors: [pubkey],
+				'#d': identifiers,
+				...PLATFORM_FILTER
+			};
+			return fetchFromRelays(relays, filter, { timeout, signal });
+		});
 
-		const app = await fetchEvent(
-			{ kinds: [32267], authors: [ref.pubkey], '#d': [ref.identifier], ...PLATFORM_FILTER },
-			{ relays, timeout, signal }
-		);
-
-		if (app) {
-			apps.push(app);
+		const results = await Promise.all(fetchPromises);
+		for (const events of results) {
+			apps.push(...events);
 		}
 	}
 
-	console.log(`[NostrService] Resolved ${apps.length} apps`);
+	console.log(`[NostrService] Resolved ${apps.length} apps (batched by ${refsByPubkey.size} pubkeys)`);
 
 	// Calculate next cursor (timestamp of last release minus 1 to avoid duplicates)
 	const lastRelease = releases[releases.length - 1]!;
