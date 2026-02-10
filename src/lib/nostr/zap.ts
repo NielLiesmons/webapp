@@ -190,9 +190,7 @@ export function subscribeToZapReceipt(
 		const store = getEventStore();
 
 		sub = p
-			.subscription([...DEFAULT_SOCIAL_RELAYS], [
-				{ kinds: [9735], '#p': [recipientPubkey] }
-			])
+			.req([...DEFAULT_SOCIAL_RELAYS], { kinds: [9735], '#p': [recipientPubkey] })
 			.subscribe({
 				next: (message: unknown) => {
 					if (message && typeof message === 'object' && 'kind' in message) {

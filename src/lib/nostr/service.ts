@@ -507,7 +507,7 @@ export async function fetchFromRelays(
 		};
 
 		const p = getPool();
-		const sub = p.subscription(relays, [filter]).subscribe({
+		const sub = p.req(relays, filter).subscribe({
 			next: (message) => {
 				if (message === 'EOSE') {
 					finish();
@@ -589,12 +589,12 @@ export async function fetchAppsByReleases(
 
 	console.log(`[NostrService] Fetching releases (limit: ${limit}, until: ${until ?? 'now'})...`);
 	const releases = await fetchFromRelays(relays, releaseFilter, { timeout, signal });
-	
+
 	// Check if aborted during fetch
 	if (signal?.aborted) {
 		return { apps: [], releases: [], nextCursor: null };
 	}
-	
+
 	console.log(`[NostrService] Fetched ${releases.length} releases`);
 
 	if (releases.length === 0) {
@@ -758,7 +758,7 @@ export async function fetchApp(
 	};
 
 	console.log(`[NostrService] Fetching app: ${pubkey}:${identifier}`);
-	
+
 	// Use fetchEvent for single event lookup
 	const event = await fetchEvent(filter, { relays: DEFAULT_CATALOG_RELAYS, timeout, signal });
 
@@ -804,7 +804,7 @@ export async function fetchAppStacksParsed(options: {
 	}
 
 	console.log(`[NostrService] Fetching app stacks (limit: ${limit}, authors: ${authors?.length || 'all'})...`);
-	
+
 	// Fetch from relays
 	const events = await fetchFromRelays([...DEFAULT_CATALOG_RELAYS], filter, { timeout, signal });
 
@@ -833,7 +833,7 @@ export async function fetchProfile(
 	options: { timeout?: number; signal?: AbortSignal } = {}
 ): Promise<NostrEvent | null> {
 	const { timeout = 5000, signal } = options;
-	
+
 	if (signal?.aborted || !pubkey) {
 		return null;
 	}
