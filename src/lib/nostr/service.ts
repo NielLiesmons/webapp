@@ -643,6 +643,39 @@ export async function fetchAppsByReleases(
 }
 
 /**
+ * Search apps on the relay using NIP-50 full-text search.
+ * Returns parsed app events matching the query.
+ *
+ * @param relays - Relay URLs to query
+ * @param query - Search string (NIP-50)
+ * @param options - Fetch options
+ * @returns Array of matching app events
+ */
+export async function searchApps(
+	relays: string[],
+	query: string,
+	options: { limit?: number; timeout?: number; signal?: AbortSignal } = {}
+): Promise<NostrEvent[]> {
+	const { limit = 50, timeout = 5000, signal } = options;
+
+	if (signal?.aborted || !query.trim()) {
+		return [];
+	}
+
+	const filter: Filter = {
+		kinds: [32267], // EVENT_KINDS.APP
+		search: query.trim(),
+		limit
+	};
+
+	console.log(`[NostrService] Searching apps for: "${query}" (limit: ${limit})...`);
+	const events = await fetchFromRelays(relays, filter, { timeout, signal });
+	console.log(`[NostrService] Search returned ${events.length} apps`);
+
+	return events;
+}
+
+/**
  * Fetch app stacks (kind 30267) from relays.
  *
  * @param relays - Relay URLs to query

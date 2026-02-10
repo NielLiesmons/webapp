@@ -2,11 +2,13 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
-	import { get } from 'svelte/store';
 	import AppSmallCard from '$lib/components/cards/AppSmallCard.svelte';
 	import SkeletonLoader from '$lib/components/common/SkeletonLoader.svelte';
 	import type { App } from '$lib/nostr';
+	import { parseApp } from '$lib/nostr/models';
 	import { encodeAppNaddr } from '$lib/nostr/models';
+	import { searchApps, initNostrService } from '$lib/nostr/service';
+	import { DEFAULT_CATALOG_RELAYS } from '$lib/config';
 	import {
 		getApps,
 		getHasMore,
@@ -30,35 +32,21 @@
 	const refreshing = $derived(isRefreshing());
 	const loadingMore = $derived(isLoadingMore());
 
-	// Search query from URL (?q=...); simple client-side filter by name, description, or tags
-	const searchQ = $derived(get(page).url.searchParams.get('q')?.trim() ?? '');
+	// Search query from URL (?q=...)
+	const searchQ = $derived($page.url.searchParams.get('q')?.trim() ?? '');
 
-	function appMatchesSearch(app: App, q: string): boolean {
-		if (!q) return true;
-		const lower = q.toLowerCase();
-		const inName = app.name?.toLowerCase().includes(lower);
-		const inDesc = app.description?.toLowerCase().includes(lower);
-		let inTags = false;
-		const raw = app.rawEvent as { tags?: string[][] } | undefined;
-		if (raw?.tags) {
-			for (const tag of raw.tags) {
-				for (let i = 1; i < tag.length; i++) {
-					if (typeof tag[i] === 'string' && (tag[i] as string).toLowerCase().includes(lower)) {
-						inTags = true;
-						break;
-					}
-				}
-				if (inTags) break;
-			}
-		}
-		return inName || inDesc || inTags;
-	}
+	// Search state: relay-fetched results when ?q= is present
+	let searchResults = $state<App[] | null>(null);
+	let searching = $state(false);
+	let searchedQuery = $state('');
 
-	// SSR-safe display logic, then apply search filter when q is present
+	// SSR-safe display logic
 	const baseApps = $derived(storeInitialized ? storeApps : (data.apps ?? []));
-	const displayApps = $derived(
-		searchQ ? baseApps.filter((app) => appMatchesSearch(app, searchQ)) : baseApps
-	);
+
+	// When searching, show relay results; otherwise show the paginated list
+	const displayApps = $derived(searchQ ? (searchResults ?? []) : baseApps);
+	// True while search is in flight, OR when we have a query but no results yet
+	const isSearching = $derived(searchQ !== '' && (searching || searchResults === null));
 
 	// Navigate to app detail page route (/apps/[naddr])
 	function getAppUrl(app: App): string {
@@ -77,10 +65,55 @@
 	}
 
 	function handleScroll() {
-		if (hasMore && !loadingMore && shouldLoadMore()) {
+		if (!searchQ && hasMore && !loadingMore && shouldLoadMore()) {
 			loadMore();
 		}
 	}
+
+	// Run NIP-50 search against the relay when query changes
+	async function runSearch(query: string) {
+		if (!query) {
+			searchResults = null;
+			searchedQuery = '';
+			return;
+		}
+
+		// Don't re-run if already searched for this query
+		if (query === searchedQuery && searchResults !== null) return;
+
+		searching = true;
+		try {
+			await initNostrService();
+			const events = await searchApps([...DEFAULT_CATALOG_RELAYS], query, { limit: 50 });
+
+			// Deduplicate and parse
+			const seen = new Set<string>();
+			const parsed: App[] = [];
+			for (const event of events) {
+				const app = parseApp(event);
+				const key = `${app.pubkey}:${app.dTag}`;
+				if (!seen.has(key)) {
+					seen.add(key);
+					parsed.push(app);
+				}
+			}
+
+			searchResults = parsed;
+			searchedQuery = query;
+		} catch (err) {
+			console.error('[AppsPage] Search failed:', err);
+			searchResults = [];
+		} finally {
+			searching = false;
+		}
+	}
+
+	// React to searchQ changes
+	$effect(() => {
+		if (browser) {
+			runSearch(searchQ);
+		}
+	});
 
 	onMount(() => {
 		if (!browser) return;
@@ -95,7 +128,9 @@
 		window.addEventListener('scroll', handleScroll, { passive: true });
 
 		// Always schedule background refresh so we can load/update in the meantime
-		scheduleRefresh();
+		if (!searchQ) {
+			scheduleRefresh();
+		}
 	});
 
 	onDestroy(() => {
@@ -113,12 +148,12 @@
 <section class="apps-page">
 	<div class="container mx-auto px-4 sm:px-6 lg:px-8">
 		<div class="page-header">
-			<h1>{searchQ ? `Search: “${searchQ}”` : 'All Apps'}</h1>
+			<h1>{searchQ ? `Search: "${searchQ}"` : 'All Apps'}</h1>
 		</div>
 
 		<div class="app-grid">
-			{#if displayApps.length === 0 && !refreshing}
-				<p class="empty-state">{searchQ ? `No apps match “${searchQ}”` : 'No apps found'}</p>
+			{#if displayApps.length === 0 && !refreshing && !isSearching}
+				<p class="empty-state">{searchQ ? `No apps match "${searchQ}"` : 'No apps found'}</p>
 			{:else if displayApps.length > 0}
 				{#each displayApps as app (app.id)}
 					<div class="app-item">
@@ -155,7 +190,7 @@
 			</div>
 		{/if}
 
-		{#if !hasMore && displayApps.length > 0}
+		{#if !searchQ && !hasMore && displayApps.length > 0}
 			<p class="end-message">You've reached the end</p>
 		{/if}
 	</div>

@@ -17,6 +17,7 @@ export {
 	fetchAppStacks,
 	fetchAppStacksParsed,
 	fetchApp,
+	searchApps,
 	fetchProfile,
 	fetchProfilesBatch,
 	cleanup,
