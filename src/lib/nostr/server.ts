@@ -95,7 +95,6 @@ export async function fetchAppsByReleases(
 	// Step 1: Fetch releases sorted by created_at
 	const releaseFilter: Filter = {
 		kinds: [EVENT_KINDS.RELEASE],
-		...PLATFORM_FILTER,
 		limit
 	};
 	if (until !== undefined) {
@@ -213,7 +212,6 @@ export async function fetchLatestReleaseForApp(pubkey: string, identifier: strin
 	const events = await fetchEvents({
 		kinds: [EVENT_KINDS.RELEASE],
 		'#a': [aTagValue],
-		...PLATFORM_FILTER,
 		limit: 1
 	});
 

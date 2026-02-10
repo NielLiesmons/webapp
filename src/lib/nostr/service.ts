@@ -493,6 +493,8 @@ export async function fetchFromRelays(
 		return [];
 	}
 
+	console.log('[NostrService] fetchFromRelays called with:', JSON.stringify({ relays, filter, timeout }));
+
 	return new Promise((resolve) => {
 		const events: NostrEvent[] = [];
 		const store = getEventStore();
@@ -501,14 +503,17 @@ export async function fetchFromRelays(
 		const finish = () => {
 			if (!resolved) {
 				resolved = true;
+				console.log(`[NostrService] Subscription finished with ${events.length} events`);
 				sub.unsubscribe();
 				resolve(events);
 			}
 		};
 
 		const p = getPool();
+		console.log('[NostrService] Creating subscription...');
 		const sub = p.req(relays, filter).subscribe({
 			next: (message) => {
+				console.log('[NostrService] Received message:', typeof message, message === 'EOSE' ? 'EOSE' : (message && typeof message === 'object' ? 'event' : message));
 				if (message === 'EOSE') {
 					finish();
 				} else if (message && typeof message === 'object' && 'kind' in message) {
@@ -521,6 +526,9 @@ export async function fetchFromRelays(
 			error: (err) => {
 				console.error('[NostrService] Subscription error:', err);
 				finish();
+			},
+			complete: () => {
+				console.log('[NostrService] Subscription completed');
 			}
 		});
 
@@ -580,7 +588,6 @@ export async function fetchAppsByReleases(
 	// Step 1: Fetch releases sorted by created_at
 	const releaseFilter: Filter = {
 		kinds: [30063], // EVENT_KINDS.RELEASE
-		...PLATFORM_FILTER,
 		limit
 	};
 	if (until !== undefined) {
