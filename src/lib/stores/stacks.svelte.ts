@@ -137,6 +137,8 @@ export async function refreshStacksFromRelays(): Promise<void> {
 				seenStacks.add(key);
 			}
 		}
+
+		initialized = true;
 	} catch (err) {
 		console.error('[StacksStore] Refresh failed:', err);
 	} finally {
