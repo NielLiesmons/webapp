@@ -743,7 +743,7 @@
 			</span>
 		</h1>
 		<p class="text-lg sm:text-xl text-muted-foreground max-w-[260px] sm:max-w-none mx-auto mb-8">
-			Finally, an open app store for freely sharing apps
+			Zapstore is the first truly open app store
 		</p>
 		<a
 			href="/discover"

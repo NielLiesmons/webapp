@@ -44,10 +44,11 @@
   const IMAGE_TOP_HEIGHT = 360;
 
   // Zapstore-specific constants
-  const ZAPSTORE_APK_VERSION = "0.2.7";
-  const ZAPSTORE_APK_URL = `https://cdn.zapstore.dev/zapstore-${ZAPSTORE_APK_VERSION}.apk`;
+  const ZAPSTORE_APK_FILENAME = "zapstore-1.0.0.apk";
+  const ZAPSTORE_APK_URL =
+    "https://cdn.zapstore.dev/37090571d00ca53ff1e4d21564a1b45e89feb09f47937d818156d48cf618e402.apk";
   const ANDROID_APK_SHA256 =
-    "800b9048974dfcac4e1e1b9afe0812d15e42a08264ba0b8877e22c2e6d2221ae";
+    "37090571d00ca53ff1e4d21564a1b45e89feb09f47937d818156d48cf618e402";
   const APK_CERT_HASH =
     "99e33b0c2d07e75fcd9df7e40e886646ff667e3aa6648e1a1160b036cf2b9320";
 
@@ -70,7 +71,7 @@
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "zapstore.apk";
+      a.download = ZAPSTORE_APK_FILENAME;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -586,7 +587,7 @@
             <div
               class="font-mono text-xs text-muted-foreground bg-muted/30 p-2.5 rounded-lg border border-border/30 mb-3"
             >
-              shasum -a 256 zapstore-{ZAPSTORE_APK_VERSION}.apk
+              shasum -a 256 {ZAPSTORE_APK_FILENAME}
             </div>
             <p class="text-xs text-muted-foreground mb-1.5">Should equal:</p>
             <div
