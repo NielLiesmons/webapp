@@ -182,7 +182,7 @@
 		{
 			name: 'Freedom Tech Co.',
 			role: 'Donor',
-			image: '/images/team-sprofiles/ftc.png',
+			image: '/images/team-sprofiles/ftc.jpg',
 			size: 100,
 			x: 100,
 			y: 175,
