@@ -180,6 +180,18 @@
 			profileHref: '/profile/npub10pensatlcfwktnvjjw2dtem38n6rvw8g6fv73h84cuacxn4c28eqyfn34f'
 		},
 		{
+			name: 'Freedom Tech Co.',
+			role: 'Donor',
+			image: '/images/team-sprofiles/ftc.png',
+			size: 100,
+			x: 100,
+			y: 175,
+			blur: 0,
+			opacity: 1,
+			isZapperSlot: false,
+			nameLoading: false
+		},
+		{
 			name: 'HRF',
 			role: 'Donor',
 			image: '/images/team-sprofiles/hrf.png',
