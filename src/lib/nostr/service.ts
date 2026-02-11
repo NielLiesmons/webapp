@@ -94,14 +94,32 @@ export function isInitialized(): boolean {
  * Query IndexedDB cache using Nostr-style filters.
  * Adds matching events to EventStore automatically.
  *
+ * Uses the `kind` index when filtering by a single kind to avoid
+ * loading all events into memory (major perf win for large caches).
+ *
  * @returns Events matching the filter from IndexedDB
  */
 export async function queryCache(filter: Filter): Promise<NostrEvent[]> {
 	const database = await getDb();
 	const store = getEventStore();
 
-	// Get all events from IndexedDB (we filter in memory since IDB doesn't support complex queries)
-	const records = await database.getAll('events') as EventRecord[];
+	let records: EventRecord[];
+
+	// Use kind index when filtering by a single kind (avoids full table scan)
+	if (filter.kinds && filter.kinds.length === 1) {
+		try {
+			records = (await database.getAllFromIndex(
+				'events',
+				'kind',
+				filter.kinds[0]!
+			)) as EventRecord[];
+		} catch {
+			// Index may not exist on older DBs — fall back to full scan
+			records = (await database.getAll('events')) as EventRecord[];
+		}
+	} else {
+		records = (await database.getAll('events')) as EventRecord[];
+	}
 
 	const results: NostrEvent[] = [];
 

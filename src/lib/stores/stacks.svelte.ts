@@ -138,10 +138,10 @@ export async function refreshStacksFromRelays(): Promise<void> {
 			}
 		}
 
-		initialized = true;
 	} catch (err) {
 		console.error('[StacksStore] Refresh failed:', err);
 	} finally {
+		initialized = true;
 		refreshing = false;
 	}
 }
@@ -192,32 +192,111 @@ export async function loadMoreStacks(): Promise<void> {
 
 /**
  * Resolve apps for a stack's app references.
+ * Batches refs by pubkey and fetches in parallel (not sequential).
  * Returns the apps in the same order as the stack's appRefs.
  */
 export async function resolveStackApps(stack: AppStack): Promise<App[]> {
-	if (typeof window === 'undefined') return [];
+	if (typeof window === 'undefined' || stack.appRefs.length === 0) return [];
 
 	await initNostrService();
 
-	const apps: App[] = [];
-
+	// Group refs by pubkey for batched fetching
+	const refsByPubkey = new Map<string, string[]>();
 	for (const ref of stack.appRefs) {
-		const events = await fetchEvents(
-			{
-				kinds: [EVENT_KINDS.APP],
-				authors: [ref.pubkey],
-				'#d': [ref.identifier],
-				...PLATFORM_FILTER
-			},
-			{ relays: [...DEFAULT_CATALOG_RELAYS] }
-		);
+		const existing = refsByPubkey.get(ref.pubkey) || [];
+		existing.push(ref.identifier);
+		refsByPubkey.set(ref.pubkey, existing);
+	}
 
-		if (events.length > 0) {
-			apps.push(parseApp(events[0]!));
+	// Fetch all groups in parallel (one request per pubkey group)
+	const appsByKey = new Map<string, App>();
+	await Promise.all(
+		Array.from(refsByPubkey.entries()).map(async ([pubkey, identifiers]) => {
+			const events = await fetchEvents(
+				{
+					kinds: [EVENT_KINDS.APP],
+					authors: [pubkey],
+					'#d': identifiers,
+					...PLATFORM_FILTER
+				},
+				{ relays: [...DEFAULT_CATALOG_RELAYS] }
+			);
+			for (const ev of events) {
+				const app = parseApp(ev);
+				appsByKey.set(`${app.pubkey}:${app.dTag}`, app);
+			}
+		})
+	);
+
+	// Return in original appRefs order
+	const apps: App[] = [];
+	for (const ref of stack.appRefs) {
+		const app = appsByKey.get(`${ref.pubkey}:${ref.identifier}`);
+		if (app) apps.push(app);
+	}
+	return apps;
+}
+
+/**
+ * Resolve apps for MULTIPLE stacks in a single batched operation.
+ * Collects all unique app refs across all stacks, groups by pubkey,
+ * fetches in parallel, and maps results back to each stack.
+ *
+ * Far more efficient than calling resolveStackApps for each stack.
+ */
+export async function resolveMultipleStackApps(
+	stacksList: AppStack[]
+): Promise<Array<{ stack: AppStack; apps: App[] }>> {
+	if (typeof window === 'undefined' || stacksList.length === 0) return [];
+
+	await initNostrService();
+
+	// Collect all unique app refs across all stacks
+	const allRefs = new Map<string, { pubkey: string; identifier: string }>();
+	for (const stack of stacksList) {
+		for (const ref of stack.appRefs) {
+			allRefs.set(`${ref.pubkey}:${ref.identifier}`, ref);
 		}
 	}
 
-	return apps;
+	// Batch fetch: group by pubkey, one request per group, all in parallel
+	const refsByPubkey = new Map<string, string[]>();
+	for (const [, ref] of allRefs) {
+		const existing = refsByPubkey.get(ref.pubkey) || [];
+		existing.push(ref.identifier);
+		refsByPubkey.set(ref.pubkey, existing);
+	}
+
+	const appsByKey = new Map<string, App>();
+	if (refsByPubkey.size > 0) {
+		await Promise.all(
+			Array.from(refsByPubkey.entries()).map(async ([pubkey, identifiers]) => {
+				const events = await fetchEvents(
+					{
+						kinds: [EVENT_KINDS.APP],
+						authors: [pubkey],
+						'#d': identifiers,
+						...PLATFORM_FILTER
+					},
+					{ relays: [...DEFAULT_CATALOG_RELAYS] }
+				);
+				for (const ev of events) {
+					const app = parseApp(ev);
+					appsByKey.set(`${app.pubkey}:${app.dTag}`, app);
+				}
+			})
+		);
+	}
+
+	// Map resolved apps back to each stack, preserving appRefs order
+	return stacksList.map((stack) => {
+		const apps: App[] = [];
+		for (const ref of stack.appRefs) {
+			const app = appsByKey.get(`${ref.pubkey}:${ref.identifier}`);
+			if (app) apps.push(app);
+		}
+		return { stack, apps };
+	});
 }
 
 /**

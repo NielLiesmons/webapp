@@ -41,7 +41,11 @@
 	}
 
 	async function loadResolvedStacks() {
-		if (!browser || stacks.length === 0) return;
+		if (!browser) return;
+		if (stacks.length === 0) {
+			loading = false;
+			return;
+		}
 
 		loading = true;
 
@@ -91,8 +95,12 @@
 	}
 
 	$effect(() => {
-		if (stacks.length > 0) {
-			loadResolvedStacks();
+		if (initialized) {
+			if (stacks.length > 0) {
+				loadResolvedStacks();
+			} else {
+				loading = false;
+			}
 		}
 	});
 

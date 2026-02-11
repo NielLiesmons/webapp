@@ -17,7 +17,7 @@
 	import { EVENT_KINDS, DEFAULT_CATALOG_RELAYS, PLATFORM_FILTER } from '$lib/config';
 	import { wheelScroll } from '$lib/actions/wheelScroll.js';
 	import { parseShortText } from '$lib/utils/short-text-parser.js';
-	import { resolveStackApps } from '$lib/stores/stacks.svelte';
+	import { resolveMultipleStackApps } from '$lib/stores/stacks.svelte';
 	import { getCurrentPubkey } from '$lib/stores/auth.svelte';
 	import type { App, AppStack } from '$lib/nostr';
 	import type { PageData } from './$types';
@@ -108,17 +108,9 @@
 				timeout: 8000
 			});
 			stacks = list;
-			// Resolve app details (icons, names) for each stack
-			const resolved: Array<{ stack: AppStack; apps: App[] }> = [];
-			for (const stack of list) {
-				try {
-					const apps = await resolveStackApps(stack);
-					resolved.push({ stack, apps });
-				} catch {
-					resolved.push({ stack, apps: [] });
-				}
-			}
-			resolvedStacks = resolved;
+			// Resolve app details for ALL stacks in one batched operation
+			// (collects all app refs, groups by pubkey, fetches in parallel)
+			resolvedStacks = await resolveMultipleStackApps(list);
 		} catch {
 			stacks = [];
 			resolvedStacks = [];
@@ -144,20 +136,32 @@
 					.map((s) => s.pubkey)
 			)
 		];
-		const next: Record<string, string> = {};
-		for (const pk of pubkeys) {
-			try {
-				const event = await fetchProfile(pk);
-				if (event?.content) {
-					const c = JSON.parse(event.content) as Record<string, unknown>;
-					const name = (c.display_name as string) || (c.name as string);
-					if (name) next[pk] = name;
+		if (pubkeys.length === 0) return;
+
+		// Fetch all mention profiles in parallel (not sequential)
+		const results = await Promise.all(
+			pubkeys.map(async (pk) => {
+				try {
+					const event = await fetchProfile(pk);
+					if (event?.content) {
+						const c = JSON.parse(event.content) as Record<string, unknown>;
+						const name = (c.display_name as string) || (c.name as string);
+						if (name) return [pk, name] as const;
+					}
+				} catch {
+					// ignore
 				}
-			} catch {
-				// ignore
-			}
+				return null;
+			})
+		);
+
+		const next: Record<string, string> = {};
+		for (const result of results) {
+			if (result) next[result[0]] = result[1];
 		}
-		mentionProfiles = { ...mentionProfiles, ...next };
+		if (Object.keys(next).length > 0) {
+			mentionProfiles = { ...mentionProfiles, ...next };
+		}
 	}
 
 	function handleAddClick() {
