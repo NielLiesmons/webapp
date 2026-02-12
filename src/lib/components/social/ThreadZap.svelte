@@ -1,50 +1,20 @@
-<script lang="ts">
-  /**
-   * ThreadZap - Thread-style zap display for the top of opened comment threads on a zap.
-   * Same layout as ThreadComment; only difference is amount (zap icon + sats) in the top right.
-   */
-  import ProfilePic from "$lib/components/common/ProfilePic.svelte";
-  import Timestamp from "$lib/components/common/Timestamp.svelte";
-  import ShortTextRenderer from "$lib/components/common/ShortTextRenderer.svelte";
-  import { Zap } from "$lib/components/icons";
-
-  interface Props {
-    pictureUrl?: string | null;
-    name?: string;
-    pubkey?: string | null;
-    amount?: number;
-    timestamp?: number | string | Date | null;
-    profileUrl?: string;
-    version?: string;
-    className?: string;
-    loading?: boolean;
-    content?: string;
-    emojiTags?: { shortcode: string; url: string }[];
-    resolveMentionLabel?: (pubkey: string) => string | undefined;
-  }
-
-  let {
-    pictureUrl = null,
-    name = "",
-    pubkey = null,
-    amount = 0,
-    timestamp = null,
-    profileUrl = "",
-    version = "",
-    className = "",
-    loading = false,
-    content = "",
-    emojiTags = [],
-    resolveMentionLabel,
-  }: Props = $props();
-
-  function formatAmount(val: number): string {
+<script lang="js">
+/**
+ * ThreadZap - Thread-style zap display for the top of opened comment threads on a zap.
+ * Same layout as ThreadComment; only difference is amount (zap icon + sats) in the top right.
+ */
+import ProfilePic from "$lib/components/common/ProfilePic.svelte";
+import Timestamp from "$lib/components/common/Timestamp.svelte";
+import ShortTextRenderer from "$lib/components/common/ShortTextRenderer.svelte";
+import { Zap } from "$lib/components/icons";
+let { pictureUrl = null, name = "", pubkey = null, amount = 0, timestamp = null, profileUrl = "", version = "", className = "", loading = false, content = "", emojiTags = [], resolveMentionLabel, } = $props();
+function formatAmount(val) {
     if (val >= 1000000)
-      return `${(val / 1000000).toFixed(val % 1000000 === 0 ? 0 : 1)}M`;
+        return `${(val / 1000000).toFixed(val % 1000000 === 0 ? 0 : 1)}M`;
     if (val >= 1000)
-      return `${(val / 1000).toFixed(val % 1000 === 0 ? 0 : 1)}K`;
+        return `${(val / 1000).toFixed(val % 1000 === 0 ? 0 : 1)}K`;
     return val.toLocaleString();
-  }
+}
 </script>
 
 <svg width="0" height="0" style="position: absolute;" aria-hidden="true">

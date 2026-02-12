@@ -1,142 +1,113 @@
-<script lang="ts">
-  /**
-   * DetailsTab - Shows identifiers and raw JSON data
-   */
-  import { Copy, Check } from "$lib/components/icons";
-  import NpubDisplay from "$lib/components/common/NpubDisplay.svelte";
-
-  interface Props {
-    shareableId?: string;
-    publicationLabel?: string;
-    npub?: string;
-    pubkey?: string;
-    rawData?: unknown;
-    className?: string;
-  }
-
-  let {
-    shareableId = "",
-    publicationLabel = "Publication",
-    npub = "",
-    pubkey = "",
-    rawData = null,
-    className = "",
-  }: Props = $props();
-
-  let publicationCopied = $state(false);
-  let profileCopied = $state(false);
-  let jsonCopied = $state(false);
-
-  function formatShareableId(id: string): string {
-    if (!id || id.length < 30) return id || "";
+<script lang="js">
+/**
+ * DetailsTab - Shows identifiers and raw JSON data
+ */
+import { Copy, Check } from "$lib/components/icons";
+import NpubDisplay from "$lib/components/common/NpubDisplay.svelte";
+let { shareableId = "", publicationLabel = "Publication", npub = "", pubkey = "", rawData = null, className = "", } = $props();
+let publicationCopied = $state(false);
+let profileCopied = $state(false);
+let jsonCopied = $state(false);
+function formatShareableId(id) {
+    if (!id || id.length < 30)
+        return id || "";
     return `${id.slice(0, 16)}...${id.slice(-8)}`;
-  }
-
-  const formattedJson = $derived(rawData ? JSON.stringify(rawData, null, 2) : "");
-
-  async function copyPublicationId() {
-    if (!shareableId) return;
+}
+const formattedJson = $derived(rawData ? JSON.stringify(rawData, null, 2) : "");
+async function copyPublicationId() {
+    if (!shareableId)
+        return;
     try {
-      await navigator.clipboard.writeText(shareableId);
-      publicationCopied = true;
-      setTimeout(() => (publicationCopied = false), 1500);
-    } catch (e) {
-      console.error("Failed to copy:", e);
+        await navigator.clipboard.writeText(shareableId);
+        publicationCopied = true;
+        setTimeout(() => (publicationCopied = false), 1500);
     }
-  }
-
-  async function copyProfileId() {
-    if (!npub) return;
+    catch (e) {
+        console.error("Failed to copy:", e);
+    }
+}
+async function copyProfileId() {
+    if (!npub)
+        return;
     try {
-      await navigator.clipboard.writeText(npub);
-      profileCopied = true;
-      setTimeout(() => (profileCopied = false), 1500);
-    } catch (e) {
-      console.error("Failed to copy:", e);
+        await navigator.clipboard.writeText(npub);
+        profileCopied = true;
+        setTimeout(() => (profileCopied = false), 1500);
     }
-  }
-
-  async function copyJson() {
-    if (!formattedJson) return;
+    catch (e) {
+        console.error("Failed to copy:", e);
+    }
+}
+async function copyJson() {
+    if (!formattedJson)
+        return;
     try {
-      await navigator.clipboard.writeText(formattedJson);
-      jsonCopied = true;
-      setTimeout(() => (jsonCopied = false), 1500);
-    } catch (e) {
-      console.error("Failed to copy:", e);
+        await navigator.clipboard.writeText(formattedJson);
+        jsonCopied = true;
+        setTimeout(() => (jsonCopied = false), 1500);
     }
-  }
-
-  function escapeHtml(str: string): string {
+    catch (e) {
+        console.error("Failed to copy:", e);
+    }
+}
+function escapeHtml(str) {
     return str
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-  }
-
-  function renderJson(value: unknown, indent: number): string {
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
+function renderJson(value, indent) {
     const indentStr = "  ".repeat(indent);
     const nextIndent = "  ".repeat(indent + 1);
-
     if (value === null) {
-      return `<span class="hl-value">null</span>`;
+        return `<span class="hl-value">null</span>`;
     }
-
     if (typeof value === "boolean") {
-      return `<span class="hl-value">${value}</span>`;
+        return `<span class="hl-value">${value}</span>`;
     }
-
     if (typeof value === "number") {
-      return `<span class="hl-value">${value}</span>`;
+        return `<span class="hl-value">${value}</span>`;
     }
-
     if (typeof value === "string") {
-      return `<span class="hl-punct">"</span><span class="hl-value">${escapeHtml(value)}</span><span class="hl-punct">"</span>`;
+        return `<span class="hl-punct">"</span><span class="hl-value">${escapeHtml(value)}</span><span class="hl-punct">"</span>`;
     }
-
     if (Array.isArray(value)) {
-      if (value.length === 0) {
-        return `<span class="hl-bracket">[</span><span class="hl-bracket">]</span>`;
-      }
-
-      const items = value.map((item, i) => {
-        const comma = i < value.length - 1 ? `<span class="hl-punct">,</span>` : "";
-        return `${nextIndent}${renderJson(item, indent + 1)}${comma}`;
-      });
-
-      return `<span class="hl-bracket">[</span>\n${items.join("\n")}\n${indentStr}<span class="hl-bracket">]</span>`;
+        if (value.length === 0) {
+            return `<span class="hl-bracket">[</span><span class="hl-bracket">]</span>`;
+        }
+        const items = value.map((item, i) => {
+            const comma = i < value.length - 1 ? `<span class="hl-punct">,</span>` : "";
+            return `${nextIndent}${renderJson(item, indent + 1)}${comma}`;
+        });
+        return `<span class="hl-bracket">[</span>\n${items.join("\n")}\n${indentStr}<span class="hl-bracket">]</span>`;
     }
-
     if (typeof value === "object") {
-      const keys = Object.keys(value as Record<string, unknown>);
-      if (keys.length === 0) {
-        return `<span class="hl-brace">{</span><span class="hl-brace">}</span>`;
-      }
-
-      const entries = keys.map((key, i) => {
-        const comma = i < keys.length - 1 ? `<span class="hl-punct">,</span>` : "";
-        const keyHtml = `<span class="hl-punct">"</span><span class="hl-key">${escapeHtml(key)}</span><span class="hl-punct">"</span>`;
-        const colonHtml = `<span class="hl-punct">:</span>`;
-        return `${nextIndent}${keyHtml}${colonHtml} ${renderJson((value as Record<string, unknown>)[key], indent + 1)}${comma}`;
-      });
-
-      return `<span class="hl-brace">{</span>\n${entries.join("\n")}\n${indentStr}<span class="hl-brace">}</span>`;
+        const keys = Object.keys(value);
+        if (keys.length === 0) {
+            return `<span class="hl-brace">{</span><span class="hl-brace">}</span>`;
+        }
+        const entries = keys.map((key, i) => {
+            const comma = i < keys.length - 1 ? `<span class="hl-punct">,</span>` : "";
+            const keyHtml = `<span class="hl-punct">"</span><span class="hl-key">${escapeHtml(key)}</span><span class="hl-punct">"</span>`;
+            const colonHtml = `<span class="hl-punct">:</span>`;
+            return `${nextIndent}${keyHtml}${colonHtml} ${renderJson(value[key], indent + 1)}${comma}`;
+        });
+        return `<span class="hl-brace">{</span>\n${entries.join("\n")}\n${indentStr}<span class="hl-brace">}</span>`;
     }
-
     return escapeHtml(String(value));
-  }
-
-  function highlightJson(json: string): string {
-    if (!json) return "";
+}
+function highlightJson(json) {
+    if (!json)
+        return "";
     try {
-      const parsed = JSON.parse(json);
-      return renderJson(parsed, 0);
-    } catch {
-      return escapeHtml(json);
+        const parsed = JSON.parse(json);
+        return renderJson(parsed, 0);
     }
-  }
-
-  const highlightedJson = $derived(highlightJson(formattedJson));
+    catch {
+        return escapeHtml(json);
+    }
+}
+const highlightedJson = $derived(highlightJson(formattedJson));
 </script>
 
 <div class="details-tab {className}">

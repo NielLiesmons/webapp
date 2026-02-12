@@ -1,152 +1,132 @@
-<script lang="ts">
-  import { onMount } from "svelte";
-  import { nip19 } from "nostr-tools";
-  import { Options, Zap, Download, Home, Mail, List, ChevronDown } from "$lib/components/icons";
-  import AppPic from "$lib/components/common/AppPic.svelte";
-  import ProfilePic from "$lib/components/common/ProfilePic.svelte";
-  import { getCurrentPubkey } from "$lib/stores/auth.svelte";
-  import { getApps, scheduleRefresh } from "$lib/stores/nostr.svelte";
-import { encodeAppNaddr, type App } from "$lib/nostr/models";
-
-  // Get current user's pubkey
-  const userPubkey = $derived(getCurrentPubkey());
-  
-  // Get apps from store (will filter by user's pubkey when available)
-  const allApps = $derived(getApps());
-  
-  // Filter apps by current user's pubkey
-  const userApps = $derived(
-    userPubkey 
-      ? allApps.filter(app => app.pubkey === userPubkey)
-      : []
-  );
-
-  // Main nav items
-  const navItems = [
+<script lang="js">
+import { onMount } from "svelte";
+import { nip19 } from "nostr-tools";
+import { Options, Zap, Download, Home, Mail, List, ChevronDown } from "$lib/components/icons";
+import AppPic from "$lib/components/common/AppPic.svelte";
+import ProfilePic from "$lib/components/common/ProfilePic.svelte";
+import { getCurrentPubkey } from "$lib/stores/auth.svelte.js";
+import { getApps, scheduleRefresh } from "$lib/stores/nostr.svelte.js";
+import { encodeAppNaddr } from "$lib/nostr/models";
+// Get current user's pubkey
+const userPubkey = $derived(getCurrentPubkey());
+// Get apps from store (will filter by user's pubkey when available)
+const allApps = $derived(getApps());
+// Filter apps by current user's pubkey
+const userApps = $derived(userPubkey
+    ? allApps.filter(app => app.pubkey === userPubkey)
+    : []);
+// Main nav items
+const navItems = [
     { id: "overview", label: "Overview", icon: Home },
     { id: "inbox", label: "Inbox", icon: Mail },
     { id: "tasks", label: "Tasks", icon: List },
-  ];
-  let activeTab = $state("overview");
-
-  // Demo communities
-  const demoCommunities = [
+];
+let activeTab = $state("overview");
+// Demo communities
+const demoCommunities = [
     { name: "Nostr Devs", picture: null },
     { name: "Bitcoin Builders", picture: null },
     { name: "App Testers", picture: null },
-  ];
-
-  // Colors
-  const colors = {
+];
+// Colors
+const colors = {
     downloads: "hsl(var(--blurpleColor))",
     zaps: "hsl(var(--goldColor))",
     apps: "hsl(var(--white33))"
-  };
-
-  // Demo stats
-  const totalDownloads = 2100;
-  const totalZaps = 31000;
-
-  onMount(() => {
+};
+// Demo stats
+const totalDownloads = 2100;
+const totalZaps = 31000;
+onMount(() => {
     // Refresh apps on mount
     scheduleRefresh();
-  });
-
-  function generateAppChartData(appCount: number) {
-    const data: Record<number, number[]> = {};
+});
+function generateAppChartData(appCount) {
+    const data = {};
     for (let i = 0; i < appCount; i++) {
-      const baseValue = 20 + Math.random() * 30;
-      const growth = 0.5 + Math.random() * 1.5;
-      data[i] = Array.from({ length: 30 }, (_, day) => {
-        const noise = Math.sin(day * 0.5) * 10 + Math.random() * 8;
-        return Math.max(5, Math.floor(baseValue + day * growth + noise));
-      });
+        const baseValue = 20 + Math.random() * 30;
+        const growth = 0.5 + Math.random() * 1.5;
+        data[i] = Array.from({ length: 30 }, (_, day) => {
+            const noise = Math.sin(day * 0.5) * 10 + Math.random() * 8;
+            return Math.max(5, Math.floor(baseValue + day * growth + noise));
+        });
     }
     return data;
-  }
-
-  const chartData = $derived({
+}
+const chartData = $derived({
     downloads: Array.from({ length: 30 }, (_, i) => {
-      const base = 40;
-      const growth = i * 3;
-      const wave = Math.sin(i * 0.3) * 15;
-      return Math.floor(base + growth + wave + Math.random() * 10);
+        const base = 40;
+        const growth = i * 3;
+        const wave = Math.sin(i * 0.3) * 15;
+        return Math.floor(base + growth + wave + Math.random() * 10);
     }),
     zaps: Array.from({ length: 30 }, (_, i) => {
-      const base = 500;
-      const growth = i * 50;
-      const wave = Math.sin(i * 0.4) * 200;
-      return Math.floor(base + growth + wave + Math.random() * 100);
+        const base = 500;
+        const growth = i * 50;
+        const wave = Math.sin(i * 0.4) * 200;
+        return Math.floor(base + growth + wave + Math.random() * 100);
     }),
     apps: generateAppChartData(userApps.length || 3)
-  });
-
-  const chartHeight = 100;
-  const chartPadding = { left: 0, right: 16, top: 10, bottom: 10 };
-  
-  const maxDownloads = $derived(Math.max(...(chartData.downloads || [100])) * 1.2);
-  const maxZaps = $derived(Math.max(...(chartData.zaps || [1000])) * 1.2);
-
-  function generateSmoothPath(data: number[], maxValue: number, chartWidth: number, height: number): string {
-    if (!data || data.length === 0) return "";
-    
+});
+const chartHeight = 100;
+const chartPadding = { left: 0, right: 16, top: 10, bottom: 10 };
+const maxDownloads = $derived(Math.max(...(chartData.downloads || [100])) * 1.2);
+const maxZaps = $derived(Math.max(...(chartData.zaps || [1000])) * 1.2);
+function generateSmoothPath(data, maxValue, chartWidth, height) {
+    if (!data || data.length === 0)
+        return "";
     const graphHeight = height - chartPadding.top - chartPadding.bottom;
     const graphWidth = chartWidth - chartPadding.right;
-    
     const points = data.map((val, i) => {
-      const x = (i / (data.length - 1)) * graphWidth;
-      const y = chartPadding.top + graphHeight - (val / maxValue) * graphHeight;
-      return { x, y };
+        const x = (i / (data.length - 1)) * graphWidth;
+        const y = chartPadding.top + graphHeight - (val / maxValue) * graphHeight;
+        return { x, y };
     });
-
-    if (points.length < 2) return "";
-
+    if (points.length < 2)
+        return "";
     const first = points[0];
-    if (!first) return "";
+    if (!first)
+        return "";
     let path = `M${first.x},${first.y}`;
-    
     for (let i = 1; i < points.length; i++) {
-      const prev = points[i - 1];
-      const curr = points[i];
-      if (!prev || !curr) continue;
-      const next = points[i + 1] ?? curr;
-      const prevPrev = points[i - 2];
-      
-      const tensionFactor = 0.3;
-      const cp1x = prev.x + (curr.x - (prevPrev?.x || prev.x)) * tensionFactor;
-      const cp1y = prev.y + (curr.y - (prevPrev?.y || prev.y)) * tensionFactor;
-      const cp2x = curr.x - (next.x - prev.x) * tensionFactor;
-      const cp2y = curr.y - (next.y - prev.y) * tensionFactor;
-      
-      path += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${curr.x},${curr.y}`;
+        const prev = points[i - 1];
+        const curr = points[i];
+        if (!prev || !curr)
+            continue;
+        const next = points[i + 1] ?? curr;
+        const prevPrev = points[i - 2];
+        const tensionFactor = 0.3;
+        const cp1x = prev.x + (curr.x - (prevPrev?.x || prev.x)) * tensionFactor;
+        const cp1y = prev.y + (curr.y - (prevPrev?.y || prev.y)) * tensionFactor;
+        const cp2x = curr.x - (next.x - prev.x) * tensionFactor;
+        const cp2y = curr.y - (next.y - prev.y) * tensionFactor;
+        path += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${curr.x},${curr.y}`;
     }
-    
     return path;
-  }
-
-  function getEndPoint(data: number[], maxValue: number, chartWidth: number, height: number): { x: number; y: number } {
-    if (!data || data.length === 0) return { x: 0, y: height / 2 };
+}
+function getEndPoint(data, maxValue, chartWidth, height) {
+    if (!data || data.length === 0)
+        return { x: 0, y: height / 2 };
     const graphHeight = height - chartPadding.top - chartPadding.bottom;
     const graphWidth = chartWidth - chartPadding.right;
     const lastVal = data[data.length - 1] ?? 0;
     return {
-      x: graphWidth,
-      y: chartPadding.top + graphHeight - (lastVal / maxValue) * graphHeight
+        x: graphWidth,
+        y: chartPadding.top + graphHeight - (lastVal / maxValue) * graphHeight
     };
-  }
-
-  function formatSats(num: number): string {
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + "M";
-    if (num >= 1000) return (num / 1000).toFixed(0) + "K";
+}
+function formatSats(num) {
+    if (num >= 1000000)
+        return (num / 1000000).toFixed(1) + "M";
+    if (num >= 1000)
+        return (num / 1000).toFixed(0) + "K";
     return num.toString();
-  }
-
-  function getAppUrl(app: App): string {
+}
+function getAppUrl(app) {
     return `/apps/${encodeAppNaddr(app.pubkey, app.dTag)}`;
-  }
-
-  let downloadsChartWidth = $state(400);
-  let zapsChartWidth = $state(400);
+}
+let downloadsChartWidth = $state(400);
+let zapsChartWidth = $state(400);
 </script>
 
 <section class="developer-dashboard">

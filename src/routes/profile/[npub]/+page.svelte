@@ -1,232 +1,195 @@
-<script lang="ts">
-	/**
-	 * Profile page - header (pic, name, npub, Add button) + Published Apps & Stacks
-	 */
-	import { onMount } from 'svelte';
-	import { browser } from '$app/environment';
-	import {
-		fetchEvents,
-		fetchProfile,
-		fetchAppStacksParsed,
-		parseApp,
-		initNostrService,
-		encodeAppNaddr,
-		encodeStackNaddr
-	} from '$lib/nostr';
-	import { nip19 } from 'nostr-tools';
-	import { EVENT_KINDS, DEFAULT_CATALOG_RELAYS, PLATFORM_FILTER } from '$lib/config';
-	import { wheelScroll } from '$lib/actions/wheelScroll.js';
-	import { parseShortText } from '$lib/utils/short-text-parser.js';
-	import { resolveMultipleStackApps } from '$lib/stores/stacks.svelte';
-	import { getCurrentPubkey } from '$lib/stores/auth.svelte';
-	import type { App, AppStack } from '$lib/nostr';
-	import type { PageData } from './$types';
-	import ProfilePic from '$lib/components/common/ProfilePic.svelte';
-	import NpubDisplay from '$lib/components/common/NpubDisplay.svelte';
-	import AppSmallCard from '$lib/components/cards/AppSmallCard.svelte';
-	import AppStackCard from '$lib/components/cards/AppStackCard.svelte';
-	import SectionHeader from '$lib/components/cards/SectionHeader.svelte';
-	import ShortTextRenderer from '$lib/components/common/ShortTextRenderer.svelte';
-	import SkeletonLoader from '$lib/components/common/SkeletonLoader.svelte';
-	import { Plus, Copy, Check } from '$lib/components/icons';
-
-	let { data }: { data: PageData } = $props();
-
-	const npub = $derived(data.npub ?? '');
-	const pubkey = $derived(data.pubkey);
-
-	let profile = $state<{
-		name?: string;
-		displayName?: string;
-		picture?: string;
-		about?: string;
-	} | null>(null);
-	let profileLoading = $state(true);
-	let apps = $state<App[]>([]);
-	let appsLoading = $state(true);
-	let stacks = $state<AppStack[]>([]);
-	let stacksLoading = $state(true);
-	let addButtonLabel = $state<'Add' | 'Added'>('Add');
-	let addButtonDisabled = $state(false);
-	/** Resolved display names for npubs mentioned in profile about (nostr:npub1...) */
-	let mentionProfiles = $state<Record<string, string>>({});
-	/** Stacks with resolved app details (icons, names) for display */
-	let resolvedStacks = $state<Array<{ stack: AppStack; apps: App[] }>>([]);
-
-	const profileName = $derived(
-		profile?.displayName || profile?.name || (pubkey ? `${pubkey.slice(0, 8)}…` : 'Anonymous')
-	);
-	const profilePictureUrl = $derived(profile?.picture ?? '');
-	const isConnected = $derived(getCurrentPubkey() !== null);
-
-	async function loadProfile(pk: string) {
-		profileLoading = true;
-		try {
-			if (browser) await initNostrService();
-			const event = await fetchProfile(pk);
-			if (event?.content) {
-				const c = JSON.parse(event.content) as Record<string, unknown>;
-				profile = {
-					name: c.name as string | undefined,
-					displayName: (c.display_name as string) || (c.name as string),
-					picture: c.picture as string | undefined,
-					about: c.about as string | undefined
-				};
-			} else {
-				profile = {};
-			}
-		} catch {
-			profile = {};
-		} finally {
-			profileLoading = false;
-		}
-	}
-
-	async function loadAppsByAuthor(pk: string) {
-		appsLoading = true;
-		try {
-			if (browser) await initNostrService();
-			const events = await fetchEvents(
-				{ kinds: [EVENT_KINDS.APP], authors: [pk], ...PLATFORM_FILTER, limit: 50 },
-				{ relays: [...DEFAULT_CATALOG_RELAYS], timeout: 8000 }
-			);
-			apps = events.map((ev) => parseApp(ev));
-		} catch {
-			apps = [];
-		} finally {
-			appsLoading = false;
-		}
-	}
-
-	async function loadStacksByAuthor(pk: string) {
-		stacksLoading = true;
-		try {
-			if (browser) await initNostrService();
-			const list = await fetchAppStacksParsed({
-				authors: [pk],
-				limit: 50,
-				timeout: 8000
-			});
-			stacks = list;
-			// Resolve app details for ALL stacks in one batched operation
-			// (collects all app refs, groups by pubkey, fetches in parallel)
-			resolvedStacks = await resolveMultipleStackApps(list);
-		} catch {
-			stacks = [];
-			resolvedStacks = [];
-		} finally {
-			stacksLoading = false;
-		}
-	}
-
-	/** Load profiles for pubkeys mentioned in about (nostr:npub...) for resolveMentionLabel */
-	async function loadMentionProfiles(about: string) {
-		const segments = parseShortText({ text: about, emojiTags: [] });
-		const pubkeys = [
-			...new Set(
-				segments
-					.filter(
-						(
-							s
-						): s is Extract<
-							import('$lib/utils/short-text-parser.js').ShortTextSegment,
-							{ type: 'mention' }
-						> => s.type === 'mention'
-					)
-					.map((s) => s.pubkey)
-			)
-		];
-		if (pubkeys.length === 0) return;
-
-		// Fetch all mention profiles in parallel (not sequential)
-		const results = await Promise.all(
-			pubkeys.map(async (pk) => {
-				try {
-					const event = await fetchProfile(pk);
-					if (event?.content) {
-						const c = JSON.parse(event.content) as Record<string, unknown>;
-						const name = (c.display_name as string) || (c.name as string);
-						if (name) return [pk, name] as const;
-					}
-				} catch {
-					// ignore
-				}
-				return null;
-			})
-		);
-
-		const next: Record<string, string> = {};
-		for (const result of results) {
-			if (result) next[result[0]] = result[1];
-		}
-		if (Object.keys(next).length > 0) {
-			mentionProfiles = { ...mentionProfiles, ...next };
-		}
-	}
-
-	function handleAddClick() {
-		// Placeholder: add/remove from kind 3 and kind 30000 (simplified for first draft)
-		addButtonDisabled = true;
-		addButtonLabel = 'Added';
-		setTimeout(() => {
-			addButtonDisabled = false;
-		}, 800);
-	}
-
-	let npubCopied = $state(false);
-	async function copyNpub() {
-		if (!npub) return;
-		try {
-			await navigator.clipboard.writeText(npub);
-			npubCopied = true;
-			setTimeout(() => (npubCopied = false), 1500);
-		} catch {
-			// ignore
-		}
-	}
-
-	onMount(() => {
-		if (!pubkey || !browser) return;
-		loadProfile(pubkey);
-		loadAppsByAuthor(pubkey);
-		loadStacksByAuthor(pubkey);
-	});
-
-	$effect(() => {
-		const about = profile?.about?.trim();
-		if (about && browser) loadMentionProfiles(about);
-	});
-
-	// Stack card shape for AppStackCard: name, description, apps[] (with icon), creator
-	function stackToCard(
-		s: AppStack,
-		resolvedApps?: App[]
-	): {
-		name: string;
-		description: string;
-		apps: Array<{ name: string; icon?: string; dTag?: string }>;
-		creator?: { name?: string; picture?: string; pubkey: string; npub: string };
-	} {
-		const creatorNpub = pubkey ? nip19.npubEncode(pubkey) : '';
-		const appRefs = s.appRefs || [];
-		const apps =
-			resolvedApps && resolvedApps.length > 0
-				? resolvedApps.map((a) => ({ name: a.name || a.dTag || '', icon: a.icon, dTag: a.dTag }))
-				: appRefs.map((ref) => ({ name: ref.identifier, dTag: ref.identifier }));
-		return {
-			name: s.title || s.dTag || 'Untitled',
-			description: s.description || '',
-			apps,
-			creator: pubkey
-				? {
-						name: profileName,
-						picture: profilePictureUrl,
-						pubkey,
-						npub: creatorNpub
-					}
-				: undefined
-		};
-	}
+<script lang="js">
+/**
+ * Profile page - header (pic, name, npub, Add button) + Published Apps & Stacks
+ */
+import { onMount } from 'svelte';
+import { browser } from '$app/environment';
+import { fetchEvents, fetchProfile, fetchAppStacksParsed, parseApp, initNostrService, encodeAppNaddr, encodeStackNaddr } from '$lib/nostr';
+import { nip19 } from 'nostr-tools';
+import { EVENT_KINDS, DEFAULT_CATALOG_RELAYS, PLATFORM_FILTER } from '$lib/config';
+import { wheelScroll } from '$lib/actions/wheelScroll.js';
+import { parseShortText } from '$lib/utils/short-text-parser.js';
+import { resolveMultipleStackApps } from '$lib/stores/stacks.svelte.js';
+import { getCurrentPubkey } from '$lib/stores/auth.svelte.js';
+import ProfilePic from '$lib/components/common/ProfilePic.svelte';
+import NpubDisplay from '$lib/components/common/NpubDisplay.svelte';
+import AppSmallCard from '$lib/components/cards/AppSmallCard.svelte';
+import AppStackCard from '$lib/components/cards/AppStackCard.svelte';
+import SectionHeader from '$lib/components/cards/SectionHeader.svelte';
+import ShortTextRenderer from '$lib/components/common/ShortTextRenderer.svelte';
+import SkeletonLoader from '$lib/components/common/SkeletonLoader.svelte';
+import { Plus, Copy, Check } from '$lib/components/icons';
+let { data } = $props();
+const npub = $derived(data.npub ?? '');
+const pubkey = $derived(data.pubkey);
+let profile = $state(null);
+let profileLoading = $state(true);
+let apps = $state([]);
+let appsLoading = $state(true);
+let stacks = $state([]);
+let stacksLoading = $state(true);
+let addButtonLabel = $state('Add');
+let addButtonDisabled = $state(false);
+/** Resolved display names for npubs mentioned in profile about (nostr:npub1...) */
+let mentionProfiles = $state({});
+/** Stacks with resolved app details (icons, names) for display */
+let resolvedStacks = $state([]);
+const profileName = $derived(profile?.displayName || profile?.name || (pubkey ? `${pubkey.slice(0, 8)}…` : 'Anonymous'));
+const profilePictureUrl = $derived(profile?.picture ?? '');
+const isConnected = $derived(getCurrentPubkey() !== null);
+async function loadProfile(pk) {
+    profileLoading = true;
+    try {
+        if (browser)
+            await initNostrService();
+        const event = await fetchProfile(pk);
+        if (event?.content) {
+            const c = JSON.parse(event.content);
+            profile = {
+                name: c.name,
+                displayName: c.display_name || c.name,
+                picture: c.picture,
+                about: c.about
+            };
+        }
+        else {
+            profile = {};
+        }
+    }
+    catch {
+        profile = {};
+    }
+    finally {
+        profileLoading = false;
+    }
+}
+async function loadAppsByAuthor(pk) {
+    appsLoading = true;
+    try {
+        if (browser)
+            await initNostrService();
+        const events = await fetchEvents({ kinds: [EVENT_KINDS.APP], authors: [pk], ...PLATFORM_FILTER, limit: 50 }, { relays: [...DEFAULT_CATALOG_RELAYS], timeout: 8000 });
+        apps = events.map((ev) => parseApp(ev));
+    }
+    catch {
+        apps = [];
+    }
+    finally {
+        appsLoading = false;
+    }
+}
+async function loadStacksByAuthor(pk) {
+    stacksLoading = true;
+    try {
+        if (browser)
+            await initNostrService();
+        const list = await fetchAppStacksParsed({
+            authors: [pk],
+            limit: 50,
+            timeout: 8000
+        });
+        stacks = list;
+        // Resolve app details for ALL stacks in one batched operation
+        // (collects all app refs, groups by pubkey, fetches in parallel)
+        resolvedStacks = await resolveMultipleStackApps(list);
+    }
+    catch {
+        stacks = [];
+        resolvedStacks = [];
+    }
+    finally {
+        stacksLoading = false;
+    }
+}
+/** Load profiles for pubkeys mentioned in about (nostr:npub...) for resolveMentionLabel */
+async function loadMentionProfiles(about) {
+    const segments = parseShortText({ text: about, emojiTags: [] });
+    const pubkeys = [
+        ...new Set(segments
+            .filter((s) => s.type === 'mention')
+            .map((s) => s.pubkey))
+    ];
+    if (pubkeys.length === 0)
+        return;
+    // Fetch all mention profiles in parallel (not sequential)
+    const results = await Promise.all(pubkeys.map(async (pk) => {
+        try {
+            const event = await fetchProfile(pk);
+            if (event?.content) {
+                const c = JSON.parse(event.content);
+                const name = c.display_name || c.name;
+                if (name)
+                    return [pk, name];
+            }
+        }
+        catch {
+            // ignore
+        }
+        return null;
+    }));
+    const next = {};
+    for (const result of results) {
+        if (result)
+            next[result[0]] = result[1];
+    }
+    if (Object.keys(next).length > 0) {
+        mentionProfiles = { ...mentionProfiles, ...next };
+    }
+}
+function handleAddClick() {
+    // Placeholder: add/remove from kind 3 and kind 30000 (simplified for first draft)
+    addButtonDisabled = true;
+    addButtonLabel = 'Added';
+    setTimeout(() => {
+        addButtonDisabled = false;
+    }, 800);
+}
+let npubCopied = $state(false);
+async function copyNpub() {
+    if (!npub)
+        return;
+    try {
+        await navigator.clipboard.writeText(npub);
+        npubCopied = true;
+        setTimeout(() => (npubCopied = false), 1500);
+    }
+    catch {
+        // ignore
+    }
+}
+onMount(() => {
+    if (!pubkey || !browser)
+        return;
+    loadProfile(pubkey);
+    loadAppsByAuthor(pubkey);
+    loadStacksByAuthor(pubkey);
+});
+$effect(() => {
+    const about = profile?.about?.trim();
+    if (about && browser)
+        loadMentionProfiles(about);
+});
+// Stack card shape for AppStackCard: name, description, apps[] (with icon), creator
+function stackToCard(s, resolvedApps) {
+    const creatorNpub = pubkey ? nip19.npubEncode(pubkey) : '';
+    const appRefs = s.appRefs || [];
+    const apps = resolvedApps && resolvedApps.length > 0
+        ? resolvedApps.map((a) => ({ name: a.name || a.dTag || '', icon: a.icon, dTag: a.dTag }))
+        : appRefs.map((ref) => ({ name: ref.identifier, dTag: ref.identifier }));
+    return {
+        name: s.title || s.dTag || 'Untitled',
+        description: s.description || '',
+        apps,
+        creator: pubkey
+            ? {
+                name: profileName,
+                picture: profilePictureUrl,
+                pubkey,
+                npub: creatorNpub
+            }
+            : undefined
+    };
+}
 </script>
 
 <svelte:head>

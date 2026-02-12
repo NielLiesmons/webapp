@@ -1,133 +1,69 @@
-<script lang="ts">
-	/**
-	 * BottomBar - Fixed bottom action bar for detail pages.
-	 * Morphs in place into the comment form when Comment is tapped (no separate modal).
-	 * Slides out only when ZapSliderModal is open.
-	 */
-	import { Zap, Reply, Options } from '$lib/components/icons';
-	import InputButton from '$lib/components/common/InputButton.svelte';
-	import ShortTextInput from '$lib/components/common/ShortTextInput.svelte';
-	import ZapSliderModal from '$lib/components/modals/ZapSliderModal.svelte';
-
-	type ProfileHit = { pubkey: string; name?: string; displayName?: string; picture?: string };
-	type EmojiHit = { shortcode: string; url: string; source: string };
-
-	interface ZapTarget {
-		name?: string;
-		pubkey?: string;
-		dTag?: string;
-		id?: string;
-		pictureUrl?: string;
-	}
-
-	interface OtherZap {
-		amount: number;
-		profile?: { pictureUrl?: string; name?: string; pubkey?: string };
-	}
-
-	interface Props {
-		appName?: string;
-		publisherName?: string;
-		contentType?: 'app' | 'stack';
-		className?: string;
-		zapTarget?: ZapTarget | null;
-		otherZaps?: OtherZap[];
-		/** When false, Comment slot shows "Get started to comment" and calls onGetStarted instead of opening comment form. */
-		isSignedIn?: boolean;
-		/** Called when guest taps "Get started to comment" (opens onboarding). */
-		onGetStarted?: () => void;
-		searchProfiles?: (query: string) => Promise<ProfileHit[]>;
-		searchEmojis?: (query: string) => Promise<EmojiHit[]>;
-		oncommentSubmit?: (event: {
-			text: string;
-			emojiTags: { shortcode: string; url: string }[];
-			mentions: string[];
-			target: ZapTarget | null;
-		}) => void;
-		onzapReceived?: (event: { zapReceipt: unknown }) => void;
-		onoptions?: () => void;
-	}
-
-	let {
-		appName = '',
-		publisherName = '',
-		contentType = 'app',
-		className = '',
-		zapTarget = null,
-		otherZaps = [],
-		isSignedIn = true,
-		onGetStarted,
-		searchProfiles = async () => [],
-		searchEmojis = async () => [],
-		oncommentSubmit,
-		onzapReceived,
-		onoptions
-	}: Props = $props();
-
-	let zapModalOpen = $state(false);
-	let commentExpanded = $state(false);
-	let commentInput = $state<{ clear?: () => void; focus?: () => void } | null>(null);
-	let submitting = $state(false);
-
-	/** Bar slides out only when zap modal is open (comment morphs in place) */
-	const barSlidesOut = $derived(zapModalOpen);
-
-	function handleZap() {
-		zapModalOpen = true;
-	}
-
-	function handleZapClose(event: { success: boolean }) {
-		zapModalOpen = false;
-		if (event.success) {
-			onzapReceived?.({ zapReceipt: {} });
-		}
-	}
-
-	function handleZapReceived(event: { zapReceipt: unknown }) {
-		onzapReceived?.(event);
-	}
-
-	function handleComment() {
-		commentExpanded = true;
-	}
-
-	function closeComment() {
-		commentExpanded = false;
-	}
-
-	async function handleCommentSubmit(event: {
-		text: string;
-		emojiTags: { shortcode: string; url: string }[];
-		mentions: string[];
-	}) {
-		if (submitting || !event.text.trim()) return;
-		submitting = true;
-		try {
-			oncommentSubmit?.({ ...event, target: zapTarget });
-			commentInput?.clear?.();
-			closeComment();
-		} catch (err) {
-			console.error('Failed to submit comment:', err);
-		} finally {
-			submitting = false;
-		}
-	}
-
-	function handleCommentKeydown(e: KeyboardEvent) {
-		if (!commentExpanded) return;
-		if (e.key === 'Escape') {
-			closeComment();
-			e.preventDefault();
-			e.stopPropagation();
-		}
-	}
-
-	$effect(() => {
-		if (commentExpanded && commentInput) {
-			const t = setTimeout(() => commentInput?.focus?.(), 120);
-			return () => clearTimeout(t);
-		}
-	});
+<script lang="js">
+/**
+ * BottomBar - Fixed bottom action bar for detail pages.
+ * Morphs in place into the comment form when Comment is tapped (no separate modal).
+ * Slides out only when ZapSliderModal is open.
+ */
+import { Zap, Reply, Options } from '$lib/components/icons';
+import InputButton from '$lib/components/common/InputButton.svelte';
+import ShortTextInput from '$lib/components/common/ShortTextInput.svelte';
+import ZapSliderModal from '$lib/components/modals/ZapSliderModal.svelte';
+let { appName = '', publisherName = '', contentType = 'app', className = '', zapTarget = null, otherZaps = [], isSignedIn = true, onGetStarted, searchProfiles = async () => [], searchEmojis = async () => [], oncommentSubmit, onzapReceived, onoptions } = $props();
+let zapModalOpen = $state(false);
+let commentExpanded = $state(false);
+let commentInput = $state(null);
+let submitting = $state(false);
+/** Bar slides out only when zap modal is open (comment morphs in place) */
+const barSlidesOut = $derived(zapModalOpen);
+function handleZap() {
+    zapModalOpen = true;
+}
+function handleZapClose(event) {
+    zapModalOpen = false;
+    if (event.success) {
+        onzapReceived?.({ zapReceipt: {} });
+    }
+}
+function handleZapReceived(event) {
+    onzapReceived?.(event);
+}
+function handleComment() {
+    commentExpanded = true;
+}
+function closeComment() {
+    commentExpanded = false;
+}
+async function handleCommentSubmit(event) {
+    if (submitting || !event.text.trim())
+        return;
+    submitting = true;
+    try {
+        oncommentSubmit?.({ ...event, target: zapTarget });
+        commentInput?.clear?.();
+        closeComment();
+    }
+    catch (err) {
+        console.error('Failed to submit comment:', err);
+    }
+    finally {
+        submitting = false;
+    }
+}
+function handleCommentKeydown(e) {
+    if (!commentExpanded)
+        return;
+    if (e.key === 'Escape') {
+        closeComment();
+        e.preventDefault();
+        e.stopPropagation();
+    }
+}
+$effect(() => {
+    if (commentExpanded && commentInput) {
+        const t = setTimeout(() => commentInput?.focus?.(), 120);
+        return () => clearTimeout(t);
+    }
+});
 </script>
 
 <svelte:window onkeydown={handleCommentKeydown} />

@@ -1,21 +1,5 @@
-<script lang="ts">
-  /**
-   * Spinner - A 3/4 circle spinning indicator.
-   * Configurable color and size for use in buttons, tabs, inline loading.
-   */
-  interface Props {
-    /** CSS color (default: blurple) */
-    color?: string;
-    /** Size in pixels (default: 14) */
-    size?: number;
-    className?: string;
-  }
-
-  let {
-    color = "hsl(var(--blurpleColor))",
-    size = 14,
-    className = "",
-  }: Props = $props();
+<script lang="js">
+let { color = "hsl(var(--blurpleColor))", size = 14, className = "", } = $props();
 </script>
 
 <svg

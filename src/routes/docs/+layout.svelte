@@ -1,19 +1,11 @@
-<script lang="ts">
-	import DocsNavigation from '$lib/components/DocsNavigation.svelte';
-	import { Menu, X } from 'lucide-svelte';
-	import type { NavNode } from '$lib/content';
-
-	interface PageData {
-		navigation: NavNode[];
-	}
-
-	let { data, children }: { data: PageData; children: any } = $props();
-
-	let mobileMenuOpen = $state(false);
-
-	function toggleMobileMenu() {
-		mobileMenuOpen = !mobileMenuOpen;
-	}
+<script lang="js">
+import DocsNavigation from '$lib/components/DocsNavigation.svelte';
+import { Menu, X } from 'lucide-svelte';
+let { data, children } = $props();
+let mobileMenuOpen = $state(false);
+function toggleMobileMenu() {
+    mobileMenuOpen = !mobileMenuOpen;
+}
 </script>
 
 <div class="py-12 lg:py-16">

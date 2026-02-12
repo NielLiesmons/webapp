@@ -1,29 +1,11 @@
-<script lang="ts">
-  import { stringToColor } from "$lib/utils/color.js";
-
-  /**
-   * Label Component
-   * Triangle-shaped label with text
-   */
-
-  interface Props {
-    text?: string;
-    isSelected?: boolean;
-    isEmphasized?: boolean;
-    onTap?: () => void;
-  }
-
-  let { text = "", isSelected = false, isEmphasized = false, onTap = () => {} }: Props = $props();
-
-  const baseColor = $derived(stringToColor(text));
-  const bgColor = $derived(
-    isSelected || isEmphasized
-      ? `rgba(${baseColor.r}, ${baseColor.g}, ${baseColor.b}, 0.40)`
-      : `rgba(${baseColor.r}, ${baseColor.g}, ${baseColor.b}, 0.16)`
-  );
-  const textColor = $derived(
-    isSelected || isEmphasized ? "hsl(var(--white))" : "hsl(var(--white66))"
-  );
+<script lang="js">
+import { stringToColor } from "$lib/utils/color.js";
+let { text = "", isSelected = false, isEmphasized = false, onTap = () => { } } = $props();
+const baseColor = $derived(stringToColor(text));
+const bgColor = $derived(isSelected || isEmphasized
+    ? `rgba(${baseColor.r}, ${baseColor.g}, ${baseColor.b}, 0.40)`
+    : `rgba(${baseColor.r}, ${baseColor.g}, ${baseColor.b}, 0.16)`);
+const textColor = $derived(isSelected || isEmphasized ? "hsl(var(--white))" : "hsl(var(--white66))");
 </script>
 
 <button

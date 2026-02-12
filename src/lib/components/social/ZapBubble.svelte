@@ -1,49 +1,20 @@
-<script lang="ts">
-  /**
-   * ZapBubble - A chat-like bubble for displaying zaps
-   * Zap comment is rendered via ShortTextRenderer (mentions, emoji, nostr refs).
-   */
-  import ProfilePic from "$lib/components/common/ProfilePic.svelte";
-  import Timestamp from "$lib/components/common/Timestamp.svelte";
-  import ShortTextRenderer from "$lib/components/common/ShortTextRenderer.svelte";
-  import { Zap } from "$lib/components/icons";
-
-  interface Props {
-    pictureUrl?: string | null;
-    name?: string;
-    pubkey?: string | null;
-    amount?: number;
-    timestamp?: number | string | Date | null;
-    profileUrl?: string;
-    className?: string;
-    loading?: boolean;
-    message?: string;
-    /** Optional emoji shortcode/url for zap comment (e.g. from zap request) */
-    emojiTags?: { shortcode: string; url: string }[];
-    resolveMentionLabel?: (pubkey: string) => string | undefined;
-  }
-
-  let {
-    pictureUrl = null,
-    name = "",
-    pubkey = null,
-    amount = 0,
-    timestamp = null,
-    profileUrl = "",
-    className = "",
-    loading = false,
-    message = "",
-    emojiTags = [],
-    resolveMentionLabel,
-  }: Props = $props();
-
-  function formatAmount(val: number): string {
+<script lang="js">
+/**
+ * ZapBubble - A chat-like bubble for displaying zaps
+ * Zap comment is rendered via ShortTextRenderer (mentions, emoji, nostr refs).
+ */
+import ProfilePic from "$lib/components/common/ProfilePic.svelte";
+import Timestamp from "$lib/components/common/Timestamp.svelte";
+import ShortTextRenderer from "$lib/components/common/ShortTextRenderer.svelte";
+import { Zap } from "$lib/components/icons";
+let { pictureUrl = null, name = "", pubkey = null, amount = 0, timestamp = null, profileUrl = "", className = "", loading = false, message = "", emojiTags = [], resolveMentionLabel, } = $props();
+function formatAmount(val) {
     if (val >= 1000000)
-      return `${(val / 1000000).toFixed(val % 1000000 === 0 ? 0 : 1)}M`;
+        return `${(val / 1000000).toFixed(val % 1000000 === 0 ? 0 : 1)}M`;
     if (val >= 1000)
-      return `${(val / 1000).toFixed(val % 1000 === 0 ? 0 : 1)}K`;
+        return `${(val / 1000).toFixed(val % 1000 === 0 ? 0 : 1)}K`;
     return val.toLocaleString();
-  }
+}
 </script>
 
 <div class="zap-bubble {className}">

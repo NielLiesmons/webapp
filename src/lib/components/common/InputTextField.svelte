@@ -1,69 +1,30 @@
-<script lang="ts">
-  /**
-   * InputTextField - Styled text input component
-   *
-   * Matches the zaplab_design LabInputTextField styling:
-   * - black33 background with white33 border (0.33px)
-   * - 16px border radius
-   * - Height matches button heights (38px mobile, 42px desktop)
-   * - Optional title above and warning below
-   * - Warning has triangle pointer
-   */
-  import { Alert } from "$lib/components/icons";
-
-  interface Props {
-    value?: string;
-    placeholder?: string;
-    title?: string | null;
-    warning?: string | null;
-    size?: "small" | "medium" | "large";
-    singleLine?: boolean;
-    autoCapitalize?: boolean;
-    obscureText?: boolean;
-    id?: string;
-    autocomplete?: string;
-    inputElement?: HTMLInputElement | HTMLTextAreaElement | null;
-    oninput?: (event: { value: string }) => void;
-    onkeydown?: (event: { key: string; event: KeyboardEvent }) => void;
-    onfocus?: (event: FocusEvent) => void;
-    onblur?: (event: FocusEvent) => void;
-  }
-
-  let {
-    value = $bindable(""),
-    placeholder = "",
-    title = null,
-    warning = null,
-    size = "small",
-    singleLine = true,
-    autoCapitalize = true,
-    obscureText = false,
-    id = "",
-    autocomplete = "off",
-    inputElement = $bindable(null),
-    oninput,
-    onkeydown,
-    onfocus,
-    onblur,
-  }: Props = $props();
-
-  function handleInput(e: Event) {
-    const target = e.target as HTMLInputElement | HTMLTextAreaElement;
+<script lang="js">
+/**
+ * InputTextField - Styled text input component
+ *
+ * Matches the zaplab_design LabInputTextField styling:
+ * - black33 background with white33 border (0.33px)
+ * - 16px border radius
+ * - Height matches button heights (38px mobile, 42px desktop)
+ * - Optional title above and warning below
+ * - Warning has triangle pointer
+ */
+import { Alert } from "$lib/components/icons";
+let { value = $bindable(""), placeholder = "", title = null, warning = null, size = "small", singleLine = true, autoCapitalize = true, obscureText = false, id = "", autocomplete = "off", inputElement = $bindable(null), oninput, onkeydown, onfocus, onblur, } = $props();
+function handleInput(e) {
+    const target = e.target;
     value = target.value;
     oninput?.({ value });
-  }
-
-  function handleKeydown(e: KeyboardEvent) {
+}
+function handleKeydown(e) {
     onkeydown?.({ key: e.key, event: e });
-  }
-
-  function handleFocus(e: FocusEvent) {
+}
+function handleFocus(e) {
     onfocus?.(e);
-  }
-
-  function handleBlur(e: FocusEvent) {
+}
+function handleBlur(e) {
     onblur?.(e);
-  }
+}
 </script>
 
 <div class="input-field-wrapper">
@@ -83,7 +44,7 @@
         type={obscureText ? "password" : "text"}
         {value}
         {placeholder}
-        autocomplete={autocomplete as "off" | "on"}
+        autocomplete={autocomplete}
         autocapitalize={autoCapitalize ? "words" : "none"}
         class="input-element"
         oninput={handleInput}
@@ -97,7 +58,7 @@
         {id}
         {value}
         {placeholder}
-        autocomplete={autocomplete as "off" | "on"}
+        autocomplete={autocomplete}
         autocapitalize={autoCapitalize ? "sentences" : "none"}
         class="input-element textarea"
         class:textarea-medium={size === "medium"}

@@ -1,9 +1,8 @@
-<script lang="ts">
-  import { navigating } from '$app/stores';
-  
-  // Show loading bar during SvelteKit client-side navigation
-  // (Native browser navigation with data-sveltekit-reload won't trigger this)
-  let isNavigating = $derived($navigating !== null);
+<script lang="js">
+import { navigating } from '$app/stores';
+// Show loading bar during SvelteKit client-side navigation
+// (Native browser navigation with data-sveltekit-reload won't trigger this)
+let isNavigating = $derived($navigating !== null);
 </script>
 
 {#if isNavigating}

@@ -1,76 +1,32 @@
-<script lang="ts">
-  /**
-   * ThreadComment - Thread-style comment display for modals
-   */
-  import { onMount } from "svelte";
-  import ProfilePic from "$lib/components/common/ProfilePic.svelte";
-  import Timestamp from "$lib/components/common/Timestamp.svelte";
-  import {
-    hexToColor,
-    stringToColor,
-    getProfileTextColor,
-    rgbToCssString,
-  } from "$lib/utils/color.js";
-
-  interface Props {
-    version?: string;
-    pictureUrl?: string | null;
-    name?: string;
-    pubkey?: string | null;
-    timestamp?: number | string | Date | null;
-    profileUrl?: string;
-    loading?: boolean;
-    pending?: boolean;
-    className?: string;
-    appIconUrl?: string | null;
-    appName?: string;
-    appIdentifier?: string | null;
-    children?: import("svelte").Snippet;
-    /** Optional actions in the author row (e.g. menu trigger) */
-    headerActions?: import("svelte").Snippet;
-  }
-
-  let {
-    version = "",
-    pictureUrl = null,
-    name = "",
-    pubkey = null,
-    timestamp = null,
-    profileUrl = "",
-    loading = false,
-    pending = false,
-    className = "",
-    appIconUrl = null,
-    appName = "",
-    appIdentifier = null,
-    children,
-    headerActions,
-  }: Props = $props();
-
-  let isDarkMode = $state(true);
-
-  onMount(() => {
+<script lang="js">
+/**
+ * ThreadComment - Thread-style comment display for modals
+ */
+import { onMount } from "svelte";
+import ProfilePic from "$lib/components/common/ProfilePic.svelte";
+import Timestamp from "$lib/components/common/Timestamp.svelte";
+import { hexToColor, stringToColor, getProfileTextColor, rgbToCssString, } from "$lib/utils/color.js";
+let { version = "", pictureUrl = null, name = "", pubkey = null, timestamp = null, profileUrl = "", loading = false, pending = false, className = "", appIconUrl = null, appName = "", appIdentifier = null, children, headerActions, } = $props();
+let isDarkMode = $state(true);
+onMount(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
     isDarkMode = mediaQuery.matches;
-
-    const handleChange = (e: MediaQueryListEvent) => (isDarkMode = e.matches);
+    const handleChange = (e) => (isDarkMode = e.matches);
     mediaQuery.addEventListener("change", handleChange);
     return () => mediaQuery.removeEventListener("change", handleChange);
-  });
-
-  function getProfileColor(pk: string | null, nm: string) {
+});
+function getProfileColor(pk, nm) {
     if (pk && pk.trim()) {
-      return hexToColor(pk);
+        return hexToColor(pk);
     }
     if (nm && nm.trim()) {
-      return stringToColor(nm);
+        return stringToColor(nm);
     }
     return { r: 128, g: 128, b: 128 };
-  }
-
-  const profileColor = $derived(getProfileColor(pubkey, name));
-  const textColor = $derived(getProfileTextColor(profileColor, isDarkMode));
-  const nameColorStyle = $derived(rgbToCssString(textColor));
+}
+const profileColor = $derived(getProfileColor(pubkey, name));
+const textColor = $derived(getProfileTextColor(profileColor, isDarkMode));
+const nameColorStyle = $derived(rgbToCssString(textColor));
 </script>
 
 <div class="thread-comment {className}">

@@ -1,13 +1,6 @@
-<script lang="ts">
-  import type { App } from '$lib/nostr';
-  import AppCard from './AppCard.svelte';
-  
-  interface Props {
-    apps: App[];
-    loading?: boolean;
-  }
-  
-  let { apps, loading = false }: Props = $props();
+<script lang="js">
+import AppCard from './AppCard.svelte';
+let { apps, loading = false } = $props();
 </script>
 
 <div class="app-grid">

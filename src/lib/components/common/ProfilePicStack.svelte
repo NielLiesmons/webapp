@@ -1,55 +1,28 @@
-<script lang="ts">
-  /**
-   * ProfilePicStack - Overlapping profile pics with optional text pill
-   *
-   * Shows stacked profile pictures with:
-   * - Black66 shadow on right side of each pic
-   * - Slight overlap between pics
-   * - First pic on top (highest z-index)
-   * - Optional text pill on the right with white8 background
-   */
-
-  import ProfilePic from "./ProfilePic.svelte";
-
-  interface Profile {
-    pictureUrl?: string;
-    name?: string;
-    pubkey?: string;
-  }
-
-  interface Props {
-    profiles?: Profile[];
-    text?: string;
-    size?: "xs" | "sm" | "md" | "lg";
-    className?: string;
-    maxDisplay?: number;
-    onclick?: () => void;
-  }
-
-  let {
-    profiles = [],
-    text = "",
-    size = "sm",
-    className = "",
-    maxDisplay = 3,
-    onclick,
-  }: Props = $props();
-
-  // Size mappings for overlap and pill height
-  const sizeMap = {
+<script lang="js">
+/**
+ * ProfilePicStack - Overlapping profile pics with optional text pill
+ *
+ * Shows stacked profile pictures with:
+ * - Black66 shadow on right side of each pic
+ * - Slight overlap between pics
+ * - First pic on top (highest z-index)
+ * - Optional text pill on the right with white8 background
+ */
+import ProfilePic from "./ProfilePic.svelte";
+let { profiles = [], text = "", size = "sm", className = "", maxDisplay = 3, onclick, } = $props();
+// Size mappings for overlap and pill height
+const sizeMap = {
     xs: { overlap: 6, height: 20 },
     sm: { overlap: 8, height: 28 },
     md: { overlap: 10, height: 38 },
     lg: { overlap: 12, height: 48 },
-  };
-
-  const displayedProfiles = $derived(profiles.slice(0, maxDisplay));
-  const overlapPx = $derived(sizeMap[size]?.overlap || 8);
-  const pillHeight = $derived(sizeMap[size]?.height || 28);
-
-  function handleClick() {
+};
+const displayedProfiles = $derived(profiles.slice(0, maxDisplay));
+const overlapPx = $derived(sizeMap[size]?.overlap || 8);
+const pillHeight = $derived(sizeMap[size]?.height || 28);
+function handleClick() {
     onclick?.();
-  }
+}
 </script>
 
 <button

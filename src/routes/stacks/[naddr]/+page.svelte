@@ -1,408 +1,341 @@
-<script lang="ts">
-  /**
-   * Stack Detail Page
-   * 
-   * Displays a curated collection of apps with:
-   * - Stack header with title and description
-   * - Horizontal scrolling grid of apps (3 per column)
-   * - Social engagement (comments, zaps)
-   * - Bottom bar for interactions
-   */
-  import { page } from "$app/stores";
-  import { onMount } from "svelte";
-  import { browser } from "$app/environment";
-  import { beforeNavigate } from "$app/navigation";
-  import {
-    fetchAppStacksParsed,
-    fetchApp,
-    fetchProfile,
-    queryStoreOne,
-    queryCommentsFromStore,
-    fetchComments,
-    decodeNaddr,
-    encodeAppNaddr,
-    encodeStackNaddr,
-    parseProfile,
-    parseComment,
-    publishComment,
-  } from "$lib/nostr";
-  import type { App, AppStack, AppRef } from "$lib/nostr";
-  import { nip19 } from "nostr-tools";
-  import { wheelScroll } from "$lib/actions/wheelScroll.js";
-  import AppSmallCard from "$lib/components/cards/AppSmallCard.svelte";
-  import SocialTabs from "$lib/components/social/SocialTabs.svelte";
-  import BottomBar from "$lib/components/social/BottomBar.svelte";
-  import SkeletonLoader from "$lib/components/common/SkeletonLoader.svelte";
-  import DetailHeader from "$lib/components/layout/DetailHeader.svelte";
-  import { createSearchProfilesFunction } from "$lib/services/profile-search";
-  import { createSearchEmojisFunction } from "$lib/services/emoji-search";
-  import { getCurrentPubkey, getIsSignedIn, signEvent } from "$lib/stores/auth.svelte";
-
-  interface Creator {
-    name?: string;
-    picture?: string;
-    pubkey: string;
-    npub: string;
-  }
-
-  interface StackWithCreator extends AppStack {
-    creator: Creator | null;
-  }
-
-  // Catalog for this stack - currently just Zapstore
-  const catalogs = [
+<script lang="js">
+/**
+ * Stack Detail Page
+ *
+ * Displays a curated collection of apps with:
+ * - Stack header with title and description
+ * - Horizontal scrolling grid of apps (3 per column)
+ * - Social engagement (comments, zaps)
+ * - Bottom bar for interactions
+ */
+import { page } from "$app/stores";
+import { onMount } from "svelte";
+import { browser } from "$app/environment";
+import { beforeNavigate } from "$app/navigation";
+import { fetchAppStacksParsed, fetchApp, fetchProfile, queryStoreOne, queryCommentsFromStore, fetchComments, decodeNaddr, encodeAppNaddr, encodeStackNaddr, parseProfile, parseComment, publishComment, } from "$lib/nostr";
+import { nip19 } from "nostr-tools";
+import { wheelScroll } from "$lib/actions/wheelScroll.js";
+import AppSmallCard from "$lib/components/cards/AppSmallCard.svelte";
+import SocialTabs from "$lib/components/social/SocialTabs.svelte";
+import BottomBar from "$lib/components/social/BottomBar.svelte";
+import SkeletonLoader from "$lib/components/common/SkeletonLoader.svelte";
+import DetailHeader from "$lib/components/layout/DetailHeader.svelte";
+import { createSearchProfilesFunction } from "$lib/services/profile-search";
+import { createSearchEmojisFunction } from "$lib/services/emoji-search";
+import { getCurrentPubkey, getIsSignedIn, signEvent } from "$lib/stores/auth.svelte.js";
+// Catalog for this stack - currently just Zapstore
+const catalogs = [
     {
-      name: "Zapstore",
-      pictureUrl: "https://zapstore.dev/zapstore-icon.png",
-      pubkey: "78ce6faa72264387284e647ba6938995735ec8c7d5c5a65737e55f2fe2202182",
+        name: "Zapstore",
+        pictureUrl: "https://zapstore.dev/zapstore-icon.png",
+        pubkey: "78ce6faa72264387284e647ba6938995735ec8c7d5c5a65737e55f2fe2202182",
     },
-  ];
-
-  let stack = $state<StackWithCreator | null>(null);
-  let apps = $state<App[]>([]);
-  let loading = $state(false); // Start false, only show loading if no cached data
-  let error = $state<string | null>(null);
-
-  let comments = $state<(ReturnType<typeof parseComment> & { pending?: boolean; npub?: string })[]>([]);
-  let commentsLoading = $state(false);
-  let commentsError = $state("");
-  let getStartedModalOpen = $state(false);
-  let profiles = $state<Record<string, { displayName?: string; name?: string; picture?: string } | null>>({});
-  let profilesLoading = $state(false);
-
-  const searchProfiles = $derived(createSearchProfilesFunction(() => getCurrentPubkey()));
-  const searchEmojis = $derived(createSearchEmojisFunction(getCurrentPubkey()));
-
-  const stackNaddr = $derived($page.params.naddr);
-
-  // Ref for horizontal scroll container
-  let appsScrollContainer: HTMLElement | null = $state(null);
-
-  // Save scroll positions before navigating away
-  beforeNavigate(() => {
-    if (!browser) return;
-    
+];
+let stack = $state(null);
+let apps = $state([]);
+let loading = $state(false); // Start false, only show loading if no cached data
+let error = $state(null);
+let comments = $state([]);
+let commentsLoading = $state(false);
+let commentsError = $state("");
+let getStartedModalOpen = $state(false);
+let profiles = $state({});
+let profilesLoading = $state(false);
+const searchProfiles = $derived(createSearchProfilesFunction(() => getCurrentPubkey()));
+const searchEmojis = $derived(createSearchEmojisFunction(getCurrentPubkey()));
+const stackNaddr = $derived($page.params.naddr);
+// Ref for horizontal scroll container
+let appsScrollContainer = $state(null);
+// Save scroll positions before navigating away
+beforeNavigate(() => {
+    if (!browser)
+        return;
     const scrollState = {
-      scrollY: window.scrollY,
-      appsScrollX: appsScrollContainer?.scrollLeft ?? 0,
-      timestamp: Date.now(),
-      stackNaddr
+        scrollY: window.scrollY,
+        appsScrollX: appsScrollContainer?.scrollLeft ?? 0,
+        timestamp: Date.now(),
+        stackNaddr
     };
     sessionStorage.setItem('stack_detail_scroll', JSON.stringify(scrollState));
-  });
-
-  // Restore scroll positions on mount (when coming back)
-  let pendingScrollRestore: { scrollY: number; appsScrollX: number } | null = null;
-  
-  function restoreScrollPositions() {
-    if (!browser) return;
+});
+// Restore scroll positions on mount (when coming back)
+let pendingScrollRestore = null;
+function restoreScrollPositions() {
+    if (!browser)
+        return;
     const saved = sessionStorage.getItem('stack_detail_scroll');
     if (saved) {
-      try {
-        const scrollState = JSON.parse(saved);
-        // Only restore if saved within last 5 minutes and for the same stack
-        if (
-          Date.now() - scrollState.timestamp < 5 * 60 * 1000 &&
-          scrollState.stackNaddr === stackNaddr
-        ) {
-          pendingScrollRestore = scrollState;
-          // Restore vertical scroll immediately
-          if (scrollState.scrollY > 0) {
-            window.scrollTo(0, scrollState.scrollY);
-          }
-          // Try to restore horizontal position
-          tryRestoreHorizontalScroll();
+        try {
+            const scrollState = JSON.parse(saved);
+            // Only restore if saved within last 5 minutes and for the same stack
+            if (Date.now() - scrollState.timestamp < 5 * 60 * 1000 &&
+                scrollState.stackNaddr === stackNaddr) {
+                pendingScrollRestore = scrollState;
+                // Restore vertical scroll immediately
+                if (scrollState.scrollY > 0) {
+                    window.scrollTo(0, scrollState.scrollY);
+                }
+                // Try to restore horizontal position
+                tryRestoreHorizontalScroll();
+            }
         }
-      } catch (e) {
-        // Ignore parse errors
-      }
-      // Clear after attempting restore
-      sessionStorage.removeItem('stack_detail_scroll');
+        catch (e) {
+            // Ignore parse errors
+        }
+        // Clear after attempting restore
+        sessionStorage.removeItem('stack_detail_scroll');
     }
-  }
-  
-  function tryRestoreHorizontalScroll() {
-    if (!pendingScrollRestore) return;
-    
+}
+function tryRestoreHorizontalScroll() {
+    if (!pendingScrollRestore)
+        return;
     if (appsScrollContainer && pendingScrollRestore.appsScrollX > 0) {
-      appsScrollContainer.scrollLeft = pendingScrollRestore.appsScrollX;
-      pendingScrollRestore = null;
-    } else {
-      // Container not ready, try again next frame
-      requestAnimationFrame(tryRestoreHorizontalScroll);
+        appsScrollContainer.scrollLeft = pendingScrollRestore.appsScrollX;
+        pendingScrollRestore = null;
     }
-  }
-
-  onMount(() => {
+    else {
+        // Container not ready, try again next frame
+        requestAnimationFrame(tryRestoreHorizontalScroll);
+    }
+}
+onMount(() => {
     loadStack();
     restoreScrollPositions();
-  });
-
-  async function loadStack() {
+});
+async function loadStack() {
     try {
-      error = null;
-
-      // Parse the naddr to get pubkey and identifier
-      let stackPubkey: string, stackIdentifier: string;
-      try {
-        if (!stackNaddr) {
-          error = "Invalid stack URL";
-          return;
-        }
-        const parsed = decodeNaddr(stackNaddr);
-        if (!parsed) {
-          error = "Invalid stack URL";
-          return;
-        }
-        stackPubkey = parsed.pubkey;
-        stackIdentifier = parsed.identifier;
-      } catch (parseErr) {
-        error = "Invalid stack URL";
-        return;
-      }
-
-      // Show loading only after a delay (if data takes time from network)
-      const loadingTimeout = setTimeout(() => {
-        loading = true;
-      }, 100); // 100ms delay - cached data loads instantly
-
-      // Fetch all stacks and find the one matching our pubkey and identifier
-      const allStacks = await fetchAppStacksParsed({
-        limit: 100,
-        authors: [stackPubkey],
-      });
-      
-      // Clear loading timeout since we got data
-      clearTimeout(loadingTimeout);
-      
-      const foundStack = allStacks.find(
-        (s) => s.pubkey === stackPubkey && s.dTag === stackIdentifier
-      );
-
-      if (!foundStack) {
-        error = "Stack not found";
-        loading = false;
-        return;
-      }
-
-      // Fetch creator profile
-      let creator: Creator | null = null;
-      const creatorPubkey = foundStack.pubkey;
-      if (creatorPubkey) {
+        error = null;
+        // Parse the naddr to get pubkey and identifier
+        let stackPubkey, stackIdentifier;
         try {
-          const profileEvent = await fetchProfile(creatorPubkey);
-          if (profileEvent) {
-            const profile = parseProfile(profileEvent);
-            creator = {
-              name: profile?.displayName || profile?.name,
-              picture: profile?.picture,
-              pubkey: creatorPubkey,
-              npub: nip19.npubEncode(creatorPubkey),
-            };
-          } else {
-            creator = {
-              name: undefined,
-              picture: undefined,
-              pubkey: creatorPubkey,
-              npub: nip19.npubEncode(creatorPubkey),
-            };
-          }
-        } catch (e) {
-          creator = {
-            name: undefined,
-            picture: undefined,
-            pubkey: creatorPubkey,
-            npub: nip19.npubEncode(creatorPubkey),
-          };
-        }
-      }
-
-      stack = { ...foundStack, creator };
-
-      // Sync: comments from EventStore (local-first)
-      const cachedCommentEvents = queryCommentsFromStore(
-        foundStack.pubkey,
-        foundStack.dTag,
-        EVENT_KINDS.APP_STACK
-      );
-      if (cachedCommentEvents.length > 0) {
-        comments = cachedCommentEvents.map(parseComment);
-        // Sync: hydrate comment-author profiles from store so names/pics show immediately
-        const nextProfiles = { ...profiles };
-        const pubkeys = [...new Set(comments.map((c) => c.pubkey))];
-        for (const pk of pubkeys) {
-          const ev = queryStoreOne({ kinds: [0], authors: [pk] });
-          if (ev?.content) {
-            try {
-              const c = JSON.parse(ev.content) as Record<string, unknown>;
-              nextProfiles[pk] = {
-                displayName: (c.display_name as string) ?? (c.name as string),
-                name: c.name as string,
-                picture: c.picture as string,
-              };
-            } catch {
-              /* ignore */
+            if (!stackNaddr) {
+                error = "Invalid stack URL";
+                return;
             }
-          }
+            const parsed = decodeNaddr(stackNaddr);
+            if (!parsed) {
+                error = "Invalid stack URL";
+                return;
+            }
+            stackPubkey = parsed.pubkey;
+            stackIdentifier = parsed.identifier;
         }
-        profiles = nextProfiles;
-      }
-      loadCommentsForStack(foundStack.pubkey, foundStack.dTag);
-
-      // Fetch all apps referenced in the stack
-      const appPromises = foundStack.appRefs.map(async (ref) => {
-        try {
-          const app = await fetchApp(ref.pubkey, ref.identifier);
-          return app;
-        } catch (e) {
-          console.error("Failed to fetch app:", ref, e);
-          return null;
+        catch (parseErr) {
+            error = "Invalid stack URL";
+            return;
         }
-      });
-
-      const fetchedApps = await Promise.all(appPromises);
-      apps = fetchedApps.filter((app): app is App => app !== null);
-    } catch (err) {
-      console.error("Error loading stack:", err);
-      error = err instanceof Error ? err.message : "Unknown error";
-    } finally {
-      loading = false;
+        // Show loading only after a delay (if data takes time from network)
+        const loadingTimeout = setTimeout(() => {
+            loading = true;
+        }, 100); // 100ms delay - cached data loads instantly
+        // Fetch all stacks and find the one matching our pubkey and identifier
+        const allStacks = await fetchAppStacksParsed({
+            limit: 100,
+            authors: [stackPubkey],
+        });
+        // Clear loading timeout since we got data
+        clearTimeout(loadingTimeout);
+        const foundStack = allStacks.find((s) => s.pubkey === stackPubkey && s.dTag === stackIdentifier);
+        if (!foundStack) {
+            error = "Stack not found";
+            loading = false;
+            return;
+        }
+        // Fetch creator profile
+        let creator = null;
+        const creatorPubkey = foundStack.pubkey;
+        if (creatorPubkey) {
+            try {
+                const profileEvent = await fetchProfile(creatorPubkey);
+                if (profileEvent) {
+                    const profile = parseProfile(profileEvent);
+                    creator = {
+                        name: profile?.displayName || profile?.name,
+                        picture: profile?.picture,
+                        pubkey: creatorPubkey,
+                        npub: nip19.npubEncode(creatorPubkey),
+                    };
+                }
+                else {
+                    creator = {
+                        name: undefined,
+                        picture: undefined,
+                        pubkey: creatorPubkey,
+                        npub: nip19.npubEncode(creatorPubkey),
+                    };
+                }
+            }
+            catch (e) {
+                creator = {
+                    name: undefined,
+                    picture: undefined,
+                    pubkey: creatorPubkey,
+                    npub: nip19.npubEncode(creatorPubkey),
+                };
+            }
+        }
+        stack = { ...foundStack, creator };
+        // Sync: comments from EventStore (local-first)
+        const cachedCommentEvents = queryCommentsFromStore(foundStack.pubkey, foundStack.dTag, EVENT_KINDS.APP_STACK);
+        if (cachedCommentEvents.length > 0) {
+            comments = cachedCommentEvents.map(parseComment);
+            // Sync: hydrate comment-author profiles from store so names/pics show immediately
+            const nextProfiles = { ...profiles };
+            const pubkeys = [...new Set(comments.map((c) => c.pubkey))];
+            for (const pk of pubkeys) {
+                const ev = queryStoreOne({ kinds: [0], authors: [pk] });
+                if (ev?.content) {
+                    try {
+                        const c = JSON.parse(ev.content);
+                        nextProfiles[pk] = {
+                            displayName: c.display_name ?? c.name,
+                            name: c.name,
+                            picture: c.picture,
+                        };
+                    }
+                    catch {
+                        /* ignore */
+                    }
+                }
+            }
+            profiles = nextProfiles;
+        }
+        loadCommentsForStack(foundStack.pubkey, foundStack.dTag);
+        // Fetch all apps referenced in the stack
+        const appPromises = foundStack.appRefs.map(async (ref) => {
+            try {
+                const app = await fetchApp(ref.pubkey, ref.identifier);
+                return app;
+            }
+            catch (e) {
+                console.error("Failed to fetch app:", ref, e);
+                return null;
+            }
+        });
+        const fetchedApps = await Promise.all(appPromises);
+        apps = fetchedApps.filter((app) => app !== null);
     }
-  }
-
-  const EVENT_KINDS = { APP: 32267, APP_STACK: 30267 };
-
-  async function loadCommentsForStack(pubkey: string, dTag: string) {
+    catch (err) {
+        console.error("Error loading stack:", err);
+        error = err instanceof Error ? err.message : "Unknown error";
+    }
+    finally {
+        loading = false;
+    }
+}
+const EVENT_KINDS = { APP: 32267, APP_STACK: 30267 };
+async function loadCommentsForStack(pubkey, dTag) {
     const hadCached = comments.length > 0;
-    if (!hadCached) commentsLoading = true;
+    if (!hadCached)
+        commentsLoading = true;
     commentsError = "";
     try {
-      const events = await fetchComments(pubkey, dTag, { aTagKind: EVENT_KINDS.APP_STACK });
-      comments = events.map(parseComment);
-      const uniquePubkeys = [...new Set(comments.map((c) => c.pubkey))];
-      profilesLoading = true;
-      const nextProfiles = { ...profiles };
-      for (const pk of uniquePubkeys) {
-        try {
-          const event = await fetchProfile(pk);
-          if (event?.content) {
-            const c = JSON.parse(event.content) as Record<string, unknown>;
-            nextProfiles[pk] = {
-              displayName: (c.display_name as string) ?? (c.name as string),
-              name: c.name as string,
-              picture: c.picture as string,
-            };
-          }
-        } catch {
-          nextProfiles[pk] = null;
+        const events = await fetchComments(pubkey, dTag, { aTagKind: EVENT_KINDS.APP_STACK });
+        comments = events.map(parseComment);
+        const uniquePubkeys = [...new Set(comments.map((c) => c.pubkey))];
+        profilesLoading = true;
+        const nextProfiles = { ...profiles };
+        for (const pk of uniquePubkeys) {
+            try {
+                const event = await fetchProfile(pk);
+                if (event?.content) {
+                    const c = JSON.parse(event.content);
+                    nextProfiles[pk] = {
+                        displayName: c.display_name ?? c.name,
+                        name: c.name,
+                        picture: c.picture,
+                    };
+                }
+            }
+            catch {
+                nextProfiles[pk] = null;
+            }
         }
-      }
-      profiles = nextProfiles;
-    } catch (err) {
-      commentsError = "Failed to load comments";
-      console.error(err);
-    } finally {
-      commentsLoading = false;
-      profilesLoading = false;
+        profiles = nextProfiles;
     }
-  }
-
-  async function handleCommentSubmit(event: {
-    text: string;
-    emojiTags: { shortcode: string; url: string }[];
-    mentions: string[];
-    parentId?: string;
-    replyToPubkey?: string;
-    rootPubkey?: string;
-    parentKind?: number;
-  }) {
+    catch (err) {
+        commentsError = "Failed to load comments";
+        console.error(err);
+    }
+    finally {
+        commentsLoading = false;
+        profilesLoading = false;
+    }
+}
+async function handleCommentSubmit(event) {
     const userPubkey = getCurrentPubkey();
-    if (!userPubkey || !stack) return;
+    if (!userPubkey || !stack)
+        return;
     const { text, emojiTags: submitEmojiTags, parentId, replyToPubkey, rootPubkey, parentKind } = event;
     const tempId = `pending-${Date.now()}`;
-    const optimistic: (ReturnType<typeof parseComment> & { pending?: boolean; npub?: string }) = {
-      id: tempId,
-      pubkey: userPubkey,
-      content: text,
-      contentHtml: "",
-      emojiTags: submitEmojiTags ?? [],
-      createdAt: Math.floor(Date.now() / 1000),
-      parentId: parentId ?? null,
-      isReply: parentId != null,
-      pending: true,
-      npub: nip19.npubEncode(userPubkey),
+    const optimistic = {
+        id: tempId,
+        pubkey: userPubkey,
+        content: text,
+        contentHtml: "",
+        emojiTags: submitEmojiTags ?? [],
+        createdAt: Math.floor(Date.now() / 1000),
+        parentId: parentId ?? null,
+        isReply: parentId != null,
+        pending: true,
+        npub: nip19.npubEncode(userPubkey),
     };
     comments = [...comments, optimistic];
     try {
-      const signed = await publishComment(
-        text,
-        { contentType: "stack", pubkey: stack.pubkey, identifier: stack.dTag },
-        signEvent as (t: import("nostr-tools").EventTemplate) => Promise<import("nostr-tools").NostrEvent>,
-        submitEmojiTags,
-        parentId,
-        replyToPubkey ?? rootPubkey,
-        parentKind
-      );
-      const parsed = parseComment(signed) as ReturnType<typeof parseComment> & { npub?: string };
-      parsed.npub = nip19.npubEncode(signed.pubkey);
-      comments = comments.filter((c) => c.id !== tempId);
-      comments = [...comments, parsed];
-    } catch (err) {
-      console.error("Failed to publish comment:", err);
-      comments = comments.filter((c) => c.id !== tempId);
-      commentsError =
-        err instanceof Error ? err.message : "Comment could not be published to any relay.";
+        const signed = await publishComment(text, { contentType: "stack", pubkey: stack.pubkey, identifier: stack.dTag }, signEvent, submitEmojiTags, parentId, replyToPubkey ?? rootPubkey, parentKind);
+        const parsed = parseComment(signed);
+        parsed.npub = nip19.npubEncode(signed.pubkey);
+        comments = comments.filter((c) => c.id !== tempId);
+        comments = [...comments, parsed];
     }
-  }
-
-  function getAppUrl(app: App): string {
+    catch (err) {
+        console.error("Failed to publish comment:", err);
+        comments = comments.filter((c) => c.id !== tempId);
+        commentsError =
+            err instanceof Error ? err.message : "Comment could not be published to any relay.";
+    }
+}
+function getAppUrl(app) {
     return `/apps/${encodeAppNaddr(app.pubkey, app.dTag)}`;
-  }
-
-  // Group apps into columns of 3 for horizontal scroll
-  function getAppColumns(appList: App[], itemsPerColumn = 3): App[][] {
-    const columns: App[][] = [];
+}
+// Group apps into columns of 3 for horizontal scroll
+function getAppColumns(appList, itemsPerColumn = 3) {
+    const columns = [];
     for (let i = 0; i < appList.length; i += itemsPerColumn) {
-      columns.push(appList.slice(i, i + itemsPerColumn));
+        columns.push(appList.slice(i, i + itemsPerColumn));
     }
     return columns;
-  }
-
-  const appColumns = $derived(getAppColumns(apps, 3));
-
-  // Helper to capitalize a string (first letter uppercase)
-  function capitalize(text?: string): string {
-    if (!text) return "";
+}
+const appColumns = $derived(getAppColumns(apps, 3));
+// Helper to capitalize a string (first letter uppercase)
+function capitalize(text) {
+    if (!text)
+        return "";
     return text.charAt(0).toUpperCase() + text.slice(1);
-  }
-
-  // Helper to get first N words from a string
-  function getFirstWords(text?: string, count = 5): string {
-    if (!text) return "";
+}
+// Helper to get first N words from a string
+function getFirstWords(text, count = 5) {
+    if (!text)
+        return "";
     const words = text.trim().split(/\s+/);
     const result = words.slice(0, count).join(" ");
     return words.length > count ? result + "…" : result;
-  }
-
-  // Check if description is essentially the same as the name (case-insensitive)
-  function isDescriptionSameAsName(name?: string, description?: string): boolean {
-    if (!name || !description) return false;
+}
+// Check if description is essentially the same as the name (case-insensitive)
+function isDescriptionSameAsName(name, description) {
+    if (!name || !description)
+        return false;
     return name.toLowerCase().trim() === description.toLowerCase().trim();
-  }
-
-  // Computed display values for stack
-  const displayTitle = $derived(
-    capitalize(stack?.title) ||
-      capitalize(getFirstWords(stack?.description, 5)) ||
-      "Untitled Stack"
-  );
-  const displayDescription = $derived(
-    !stack?.title ||
-      !stack?.description ||
-      isDescriptionSameAsName(stack?.title, stack?.description)
-      ? `A stack of curated ${displayTitle} applications`
-      : stack?.description
-  );
+}
+// Computed display values for stack
+const displayTitle = $derived(capitalize(stack?.title) ||
+    capitalize(getFirstWords(stack?.description, 5)) ||
+    "Untitled Stack");
+const displayDescription = $derived(!stack?.title ||
+    !stack?.description ||
+    isDescriptionSameAsName(stack?.title, stack?.description)
+    ? `A stack of curated ${displayTitle} applications`
+    : stack?.description);
 </script>
 
 <svelte:head>

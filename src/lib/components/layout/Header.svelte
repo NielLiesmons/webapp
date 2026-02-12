@@ -1,178 +1,157 @@
-<script lang="ts">
-  import { page } from "$app/stores";
-  import { assets } from "$app/paths";
-  import { Search, User, Loader2, LogOut } from "lucide-svelte";
-  import { Menu, Cross } from "$lib/components/icons";
-  import { cn } from "$lib/utils";
-  import { onMount } from "svelte";
-  import { nip19 } from "nostr-tools";
-  import { getCurrentPubkey, getIsConnecting, connect, signOut } from "$lib/stores/auth.svelte";
-  import { queryStoreOne, fetchProfile } from "$lib/nostr";
-  import { parseProfile } from "$lib/nostr/models";
-  import ProfilePic from "$lib/components/common/ProfilePic.svelte";
-  import SearchModal from "$lib/components/common/SearchModal.svelte";
-  import GetStartedModal from "$lib/components/modals/GetStartedModal.svelte";
-  import OnboardingBuildingModal from "$lib/components/modals/OnboardingBuildingModal.svelte";
-  import SpinKeyModal from "$lib/components/modals/SpinKeyModal.svelte";
-
-  interface Props {
-    variant?: "landing" | "browse" | "studio";
-    pageTitle?: string;
-  }
-
-  let { variant = "landing", pageTitle = "" }: Props = $props();
-
-  let scrolled = $state(false);
-  let dropdownOpen = $state(false);
-  let menuOpen = $state(false);
-  let searchOpen = $state(false);
-  let searchQuery = $state("");
-  let menuContainer = $state<HTMLElement | null>(null);
-  let getStartedModalOpen = $state(false);
-  let spinKeyModalOpen = $state(false);
-  let onboardingBuildingModalOpen = $state(false);
-  let onboardingProfileName = $state("");
-
-  // Categories and platforms for search
-  const categories = ["Productivity", "Social", "Entertainment", "Utilities", "Developer Tools", "Games"];
-  const platforms = ["Android", "Mac", "Linux", "CLI", "Web", "iOS"];
-
-  // Reactive auth state
-  const pubkey = $derived(getCurrentPubkey());
-  const profileHref = $derived(pubkey ? "/profile/" + nip19.npubEncode(pubkey) : "#");
-  const isConnecting = $derived(getIsConnecting());
-  const isConnected = $derived(pubkey !== null);
-
-  // Current user profile (local-first: EventStore then background fetch) for header avatar
-  let currentUserProfile = $state<{ picture: string; name: string } | null>(null);
-  $effect(() => {
+<script lang="js">
+import { page } from "$app/stores";
+import { assets } from "$app/paths";
+import { Search, User, Loader2, LogOut } from "lucide-svelte";
+import { Menu, Cross } from "$lib/components/icons";
+import { cn } from "$lib/utils";
+import { onMount } from "svelte";
+import { nip19 } from "nostr-tools";
+import { getCurrentPubkey, getIsConnecting, connect, signOut } from "$lib/stores/auth.svelte.js";
+import { queryStoreOne, fetchProfile } from "$lib/nostr";
+import { parseProfile } from "$lib/nostr/models";
+import ProfilePic from "$lib/components/common/ProfilePic.svelte";
+import SearchModal from "$lib/components/common/SearchModal.svelte";
+import GetStartedModal from "$lib/components/modals/GetStartedModal.svelte";
+import OnboardingBuildingModal from "$lib/components/modals/OnboardingBuildingModal.svelte";
+import SpinKeyModal from "$lib/components/modals/SpinKeyModal.svelte";
+let { variant = "landing", pageTitle = "" } = $props();
+let scrolled = $state(false);
+let dropdownOpen = $state(false);
+let menuOpen = $state(false);
+let searchOpen = $state(false);
+let searchQuery = $state("");
+let menuContainer = $state(null);
+let getStartedModalOpen = $state(false);
+let spinKeyModalOpen = $state(false);
+let onboardingBuildingModalOpen = $state(false);
+let onboardingProfileName = $state("");
+// Categories and platforms for search
+const categories = ["Productivity", "Social", "Entertainment", "Utilities", "Developer Tools", "Games"];
+const platforms = ["Android", "Mac", "Linux", "CLI", "Web", "iOS"];
+// Reactive auth state
+const pubkey = $derived(getCurrentPubkey());
+const profileHref = $derived(pubkey ? "/profile/" + nip19.npubEncode(pubkey) : "#");
+const isConnecting = $derived(getIsConnecting());
+const isConnected = $derived(pubkey !== null);
+// Current user profile (local-first: EventStore then background fetch) for header avatar
+let currentUserProfile = $state(null);
+$effect(() => {
     const pk = getCurrentPubkey();
     if (!pk) {
-      currentUserProfile = null;
-      return;
+        currentUserProfile = null;
+        return;
     }
     const ev = queryStoreOne({ kinds: [0], authors: [pk], limit: 1 });
     if (ev?.content) {
-      try {
-        const p = parseProfile(ev);
-        currentUserProfile = {
-          picture: p.picture ?? "",
-          name: p.displayName ?? p.name ?? "",
-        };
-      } catch {
+        try {
+            const p = parseProfile(ev);
+            currentUserProfile = {
+                picture: p.picture ?? "",
+                name: p.displayName ?? p.name ?? "",
+            };
+        }
+        catch {
+            currentUserProfile = null;
+        }
+    }
+    else {
         currentUserProfile = null;
-      }
-    } else {
-      currentUserProfile = null;
     }
     fetchProfile(pk).then((e) => {
-      if (e?.content) {
-        try {
-          const p = parseProfile(e);
-          currentUserProfile = {
-            picture: p.picture ?? "",
-            name: p.displayName ?? p.name ?? "",
-          };
-        } catch {
-          // keep existing
+        if (e?.content) {
+            try {
+                const p = parseProfile(e);
+                currentUserProfile = {
+                    picture: p.picture ?? "",
+                    name: p.displayName ?? p.name ?? "",
+                };
+            }
+            catch {
+                // keep existing
+            }
         }
-      }
     });
-  });
-
-  function handleClickOutside(event: MouseEvent) {
-    const target = event.target as HTMLElement;
+});
+function handleClickOutside(event) {
+    const target = event.target;
     if (dropdownOpen && !target.closest(".profile-dropdown")) {
-      dropdownOpen = false;
+        dropdownOpen = false;
     }
     if (menuOpen && menuContainer && !menuContainer.contains(target)) {
-      menuOpen = false;
+        menuOpen = false;
     }
-  }
-
-  function openSearch(e?: Event) {
+}
+function openSearch(e) {
     if (e) {
-      e.stopPropagation();
-      e.preventDefault();
+        e.stopPropagation();
+        e.preventDefault();
     }
     searchOpen = true;
-  }
-
-  function toggleMenu(e?: Event) {
-    if (e) e.stopPropagation();
+}
+function toggleMenu(e) {
+    if (e)
+        e.stopPropagation();
     menuOpen = !menuOpen;
-  }
-
-  function closeMenu() {
+}
+function closeMenu() {
     menuOpen = false;
-  }
-
-  function openMenuSearch() {
+}
+function openMenuSearch() {
     menuOpen = false;
     searchOpen = true;
-  }
-
-  onMount(() => {
+}
+onMount(() => {
     const handleScroll = () => {
-      scrolled = window.scrollY > 10;
+        scrolled = window.scrollY > 10;
     };
-
-    const handleKeydown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        searchOpen = true;
-      }
+    const handleKeydown = (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+            e.preventDefault();
+            searchOpen = true;
+        }
     };
-
     window.addEventListener("scroll", handleScroll, { passive: true });
     document.addEventListener("click", handleClickOutside);
     document.addEventListener("keydown", handleKeydown);
     return () => {
-      window.removeEventListener("scroll", handleScroll);
-      document.removeEventListener("click", handleClickOutside);
-      document.removeEventListener("keydown", handleKeydown);
+        window.removeEventListener("scroll", handleScroll);
+        document.removeEventListener("click", handleClickOutside);
+        document.removeEventListener("keydown", handleKeydown);
     };
-  });
-
-  function openGetStartedModal() {
+});
+function openGetStartedModal() {
     menuOpen = false;
     getStartedModalOpen = true;
-  }
-
-  function handleGetStartedStart(event: { profileName: string }) {
+}
+function handleGetStartedStart(event) {
     onboardingProfileName = event.profileName;
     spinKeyModalOpen = true;
     setTimeout(() => {
-      getStartedModalOpen = false;
+        getStartedModalOpen = false;
     }, 80);
-  }
-
-  function handleGetStartedConnected() {
+}
+function handleGetStartedConnected() {
     getStartedModalOpen = false;
-  }
-
-  function handleSpinComplete(_event: { nsec: string; secretKeyHex: string; pubkey: string; profileName: string }) {
+}
+function handleSpinComplete(_event) {
     spinKeyModalOpen = false;
     // Defer so SpinKeyModal can close and unmount before showing the next modal
     setTimeout(() => {
-      onboardingBuildingModalOpen = true;
+        onboardingBuildingModalOpen = true;
     }, 150);
-  }
-
-  function handleUseExistingKey() {
+}
+function handleUseExistingKey() {
     spinKeyModalOpen = false;
     getStartedModalOpen = true;
-  }
-
-  function handleSignOut() {
+}
+function handleSignOut() {
     signOut();
     dropdownOpen = false;
-  }
-
-  function toggleDropdown(e: Event) {
+}
+function toggleDropdown(e) {
     e.stopPropagation();
     dropdownOpen = !dropdownOpen;
-  }
+}
 </script>
 
 <header

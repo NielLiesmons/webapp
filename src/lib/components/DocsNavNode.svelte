@@ -1,31 +1,22 @@
-<script lang="ts">
-	import { page } from '$app/stores';
-	import { ChevronRight } from 'lucide-svelte';
-	import type { NavNode } from '$lib/content';
-	import DocsNavNode from './DocsNavNode.svelte';
-
-	interface Props {
-		node: NavNode;
-		expanded?: Record<string, boolean>;
-		toggle?: (id: string) => void;
-	}
-
-	let { node, expanded = {}, toggle = () => {} }: Props = $props();
-
-	let currentPath = $derived($page.url.pathname);
-
-	function isActive(href: string | null): boolean {
-		if (!href) return false;
-		return currentPath === href;
-	}
-
-	function isAncestorActive(href: string | null): boolean {
-		if (!href) return false;
-		if (href === '/') return false;
-		return currentPath.startsWith(href + '/');
-	}
-
-	let isFolder = $derived(Array.isArray(node.children) && node.children.length > 0);
+<script lang="js">
+import { page } from '$app/stores';
+import { ChevronRight } from 'lucide-svelte';
+import DocsNavNode from './DocsNavNode.svelte';
+let { node, expanded = {}, toggle = () => { } } = $props();
+let currentPath = $derived($page.url.pathname);
+function isActive(href) {
+    if (!href)
+        return false;
+    return currentPath === href;
+}
+function isAncestorActive(href) {
+    if (!href)
+        return false;
+    if (href === '/')
+        return false;
+    return currentPath.startsWith(href + '/');
+}
+let isFolder = $derived(Array.isArray(node.children) && node.children.length > 0);
 </script>
 
 <li>

@@ -1,99 +1,95 @@
-<script lang="ts">
-	/**
-	 * SignedSection - Two columns: codeblock in gray66 wrapper at top, fixed view on bottom (no scroll);
-	 * right column "Signed. Yours. Truly." with white-blurple gradient and stepped opacity.
-	 */
-	const signedEvent = {
-		kind: 32267,
-		id: 'cc5f28ff8263f57310e1e0a699d1e2fc2a10f4c7f453d2cb4a652995c406e4b1',
-		pubkey: '78ce6faa72264387284e647ba6938995735ec8c7d5c5a65737e55130f026307d',
-		created_at: 1770317160,
-		tags: [
-			['name', 'Zapstore Alpha'],
-			['d', 'dev.zapstore.alpha'],
-			['repository', 'https://github.com/zapstore/zapstore'],
-			['url', 'https://zapstore.dev'],
-			['f', 'android-arm64-v8a'],
-			['t', 'android'],
-			['t', 'apk'],
-			['t', 'app'],
-			['t', 'appstore'],
-			['t', 'grapheneos'],
-			['t', 'lightning'],
-			['t', 'lightning-network'],
-			['t', 'nostr'],
-			['t', 'obtainium'],
-			['t', 'permissionless'],
-			['t', 'playstore'],
-			['t', 'sha256'],
-			['t', 'social-graph'],
-			['t', 'weboftrust'],
-			['license', 'MIT'],
-			[
-				'icon',
-				'https://cdn.zapstore.dev/2787fabd17260808c72ec5456996dbd5356bc8e822a1ecf85f220a29dbe2e998'
-			],
-			[
-				'a',
-				'30063:78ce6faa72264387284e647ba6938995735ec8c7d5c5a65737e55130f026307d:dev.zapstore.alpha@1.0.0-rc4'
-			]
-		],
-		content: 'The Open App Store',
-		sig: 'b0e743bb26779760ad9cea7340c284587685cd3e46a8dfadec9ca41f324aa29887bff4e0fe92b86131f73f336df351c7a6fddf2561e1d26ad24eca8ba334f862'
-	};
-
-	const formattedJson = JSON.stringify(signedEvent, null, 2);
-
-	function escapeHtml(str: string): string {
-		return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-	}
-
-	function renderJson(value: unknown, indent: number): string {
-		const indentStr = '  '.repeat(indent);
-		const nextIndent = '  '.repeat(indent + 1);
-
-		if (value === null) return `<span class="hl-value">null</span>`;
-		if (typeof value === 'boolean') return `<span class="hl-value">${value}</span>`;
-		if (typeof value === 'number') return `<span class="hl-value">${value}</span>`;
-		if (typeof value === 'string')
-			return `<span class="hl-punct">"</span><span class="hl-value">${escapeHtml(value)}</span><span class="hl-punct">"</span>`;
-
-		if (Array.isArray(value)) {
-			if (value.length === 0)
-				return `<span class="hl-bracket">[</span><span class="hl-bracket">]</span>`;
-			const items = (value as unknown[]).map((item, i) => {
-				const comma = i < (value as unknown[]).length - 1 ? `<span class="hl-punct">,</span>` : '';
-				return `${nextIndent}${renderJson(item, indent + 1)}${comma}`;
-			});
-			return `<span class="hl-bracket">[</span>\n${items.join('\n')}\n${indentStr}<span class="hl-bracket">]</span>`;
-		}
-
-		if (typeof value === 'object' && value !== null) {
-			const keys = Object.keys(value as Record<string, unknown>);
-			if (keys.length === 0)
-				return `<span class="hl-brace">{</span><span class="hl-brace">}</span>`;
-			const entries = keys.map((key, i) => {
-				const comma = i < keys.length - 1 ? `<span class="hl-punct">,</span>` : '';
-				const keyHtml = `<span class="hl-punct">"</span><span class="hl-key">${escapeHtml(key)}</span><span class="hl-punct">"</span>`;
-				const colonHtml = `<span class="hl-punct">:</span>`;
-				return `${nextIndent}${keyHtml}${colonHtml} ${renderJson((value as Record<string, unknown>)[key], indent + 1)}${comma}`;
-			});
-			return `<span class="hl-brace">{</span>\n${entries.join('\n')}\n${indentStr}<span class="hl-brace">}</span>`;
-		}
-
-		return escapeHtml(String(value));
-	}
-
-	function highlightJson(json: string): string {
-		if (!json) return '';
-		try {
-			return renderJson(JSON.parse(json), 0);
-		} catch {
-			return escapeHtml(json);
-		}
-	}
-
-	const highlightedJson = highlightJson(formattedJson);
+<script lang="js">
+/**
+ * SignedSection - Two columns: codeblock in gray66 wrapper at top, fixed view on bottom (no scroll);
+ * right column "Signed. Yours. Truly." with white-blurple gradient and stepped opacity.
+ */
+const signedEvent = {
+    kind: 32267,
+    id: 'cc5f28ff8263f57310e1e0a699d1e2fc2a10f4c7f453d2cb4a652995c406e4b1',
+    pubkey: '78ce6faa72264387284e647ba6938995735ec8c7d5c5a65737e55130f026307d',
+    created_at: 1770317160,
+    tags: [
+        ['name', 'Zapstore Alpha'],
+        ['d', 'dev.zapstore.alpha'],
+        ['repository', 'https://github.com/zapstore/zapstore'],
+        ['url', 'https://zapstore.dev'],
+        ['f', 'android-arm64-v8a'],
+        ['t', 'android'],
+        ['t', 'apk'],
+        ['t', 'app'],
+        ['t', 'appstore'],
+        ['t', 'grapheneos'],
+        ['t', 'lightning'],
+        ['t', 'lightning-network'],
+        ['t', 'nostr'],
+        ['t', 'obtainium'],
+        ['t', 'permissionless'],
+        ['t', 'playstore'],
+        ['t', 'sha256'],
+        ['t', 'social-graph'],
+        ['t', 'weboftrust'],
+        ['license', 'MIT'],
+        [
+            'icon',
+            'https://cdn.zapstore.dev/2787fabd17260808c72ec5456996dbd5356bc8e822a1ecf85f220a29dbe2e998'
+        ],
+        [
+            'a',
+            '30063:78ce6faa72264387284e647ba6938995735ec8c7d5c5a65737e55130f026307d:dev.zapstore.alpha@1.0.0-rc4'
+        ]
+    ],
+    content: 'The Open App Store',
+    sig: 'b0e743bb26779760ad9cea7340c284587685cd3e46a8dfadec9ca41f324aa29887bff4e0fe92b86131f73f336df351c7a6fddf2561e1d26ad24eca8ba334f862'
+};
+const formattedJson = JSON.stringify(signedEvent, null, 2);
+function escapeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function renderJson(value, indent) {
+    const indentStr = '  '.repeat(indent);
+    const nextIndent = '  '.repeat(indent + 1);
+    if (value === null)
+        return `<span class="hl-value">null</span>`;
+    if (typeof value === 'boolean')
+        return `<span class="hl-value">${value}</span>`;
+    if (typeof value === 'number')
+        return `<span class="hl-value">${value}</span>`;
+    if (typeof value === 'string')
+        return `<span class="hl-punct">"</span><span class="hl-value">${escapeHtml(value)}</span><span class="hl-punct">"</span>`;
+    if (Array.isArray(value)) {
+        if (value.length === 0)
+            return `<span class="hl-bracket">[</span><span class="hl-bracket">]</span>`;
+        const items = value.map((item, i) => {
+            const comma = i < value.length - 1 ? `<span class="hl-punct">,</span>` : '';
+            return `${nextIndent}${renderJson(item, indent + 1)}${comma}`;
+        });
+        return `<span class="hl-bracket">[</span>\n${items.join('\n')}\n${indentStr}<span class="hl-bracket">]</span>`;
+    }
+    if (typeof value === 'object' && value !== null) {
+        const keys = Object.keys(value);
+        if (keys.length === 0)
+            return `<span class="hl-brace">{</span><span class="hl-brace">}</span>`;
+        const entries = keys.map((key, i) => {
+            const comma = i < keys.length - 1 ? `<span class="hl-punct">,</span>` : '';
+            const keyHtml = `<span class="hl-punct">"</span><span class="hl-key">${escapeHtml(key)}</span><span class="hl-punct">"</span>`;
+            const colonHtml = `<span class="hl-punct">:</span>`;
+            return `${nextIndent}${keyHtml}${colonHtml} ${renderJson(value[key], indent + 1)}${comma}`;
+        });
+        return `<span class="hl-brace">{</span>\n${entries.join('\n')}\n${indentStr}<span class="hl-brace">}</span>`;
+    }
+    return escapeHtml(String(value));
+}
+function highlightJson(json) {
+    if (!json)
+        return '';
+    try {
+        return renderJson(JSON.parse(json), 0);
+    }
+    catch {
+        return escapeHtml(json);
+    }
+}
+const highlightedJson = highlightJson(formattedJson);
 </script>
 
 <section class="signed-section">

@@ -1,48 +1,24 @@
-<script lang="ts">
-	import AppPic from '../common/AppPic.svelte';
-	import { browser } from '$app/environment';
-
-	/**
-	 * AppSmallCard - A compact app card for horizontal scroll layouts
-	 *
-	 * Responsive sizing (two breakpoints):
-	 * - Mobile (<768px): 56px icon, 14px name, 12px description (1 line)
-	 * - Desktop (>=768px): 72px icon, 16px name, 14px description (2 lines)
-	 */
-
-	interface Props {
-		app: {
-			name: string;
-			icon?: string;
-			description?: string;
-			descriptionHtml?: string;
-			dTag?: string;
-		};
-		href?: string;
-		className?: string;
-		onclick?: (e: MouseEvent) => void;
-	}
-
-	let { app, href = '', className = '', onclick }: Props = $props();
-
-	// Get plain text description (strip HTML)
-	function getPlainDescription(appData: typeof app) {
-		if (appData.description) return appData.description;
-		if (appData.descriptionHtml && browser) {
-			const temp = document.createElement('div');
-			temp.innerHTML = appData.descriptionHtml;
-			return temp.textContent || temp.innerText || '';
-		}
-		return '';
-	}
-
-	const description = $derived(getPlainDescription(app));
-
-	function handleClick(e: MouseEvent) {
-		if (onclick) {
-			onclick(e);
-		}
-	}
+<script lang="js">
+import AppPic from '../common/AppPic.svelte';
+import { browser } from '$app/environment';
+let { app, href = '', className = '', onclick } = $props();
+// Get plain text description (strip HTML)
+function getPlainDescription(appData) {
+    if (appData.description)
+        return appData.description;
+    if (appData.descriptionHtml && browser) {
+        const temp = document.createElement('div');
+        temp.innerHTML = appData.descriptionHtml;
+        return temp.textContent || temp.innerText || '';
+    }
+    return '';
+}
+const description = $derived(getPlainDescription(app));
+function handleClick(e) {
+    if (onclick) {
+        onclick(e);
+    }
+}
 </script>
 
 <a {href} class="app-small-card {className}" onclick={handleClick}>

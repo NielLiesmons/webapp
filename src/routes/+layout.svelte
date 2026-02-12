@@ -1,77 +1,61 @@
-<script lang="ts">
-	import { onMount } from 'svelte';
-	import { browser } from '$app/environment';
-	import { page } from '$app/stores';
-	import { initAuth } from '$lib/stores/auth.svelte';
-	import { initCatalogs } from '$lib/stores/catalogs.svelte';
-	import { initOnlineStatus, isOnline } from '$lib/stores/online.svelte';
-	import { isBackgroundRefreshing } from '$lib/stores/refresh-indicator.svelte';
-	import { initNostrService } from '$lib/nostr';
-	import { startProfileSearchBackground } from '$lib/services/profile-search';
-	import Header from '$lib/components/layout/Header.svelte';
-	import Footer from '$lib/components/layout/Footer.svelte';
-	import NavigationProgress from '$lib/components/layout/NavigationProgress.svelte';
-	import '../app.css';
-
-	let { children } = $props();
-	let online = $derived(isOnline());
-	let backgroundRefreshing = $derived(isBackgroundRefreshing());
-
-	const path = $derived($page.url.pathname as string);
-
-	// ReachKit has its own layout (header + footer)
-	let isReachKit = $derived(path.startsWith('/studio/reachkit'));
-
-	// Determine header variant based on route
-	let isLandingPage = $derived(path === '/');
-	let isBrowsePage = $derived(
-		path === '/discover' ||
-			path === '/apps' ||
-			path === '/stacks' ||
-			path === '/studio' ||
-			path === '/search'
-	);
-
-	// Detail pages use their own contextual header (app and stack only; profile uses normal header)
-	let isDetailPage = $derived(/^\/apps\/[^/]+$/.test(path) || /^\/stacks\/[^/]+$/.test(path));
-
-	// Header variant: landing, browse, or studio (studio has custom search bar)
-	type HeaderVariant = 'landing' | 'browse' | 'studio';
-	let headerVariant = $derived<HeaderVariant>(
-		isLandingPage ? 'landing' : path === '/studio' ? 'studio' : 'browse'
-	);
-
-	// Determine page title for browse/studio/profile variant
-	let pageTitle = $derived(
-		path === '/discover'
-			? 'Discover'
-			: path === '/apps'
-				? 'Apps'
-				: path === '/stacks'
-					? 'Stacks'
-					: path === '/studio'
-						? 'Studio'
-						: path === '/search'
-							? 'Search'
-							: /^\/profile\/[^/]+$/.test(path)
-								? 'Profile'
-								: ''
-	);
-
-	onMount(async () => {
-		if (browser) {
-			// Restore auth from localStorage so "logged in" persists across reloads/navigation
-			initAuth();
-			// Initialize online/offline detection
-			initOnlineStatus();
-			// Initialize Nostr service (cache, store, persistence)
-			await initNostrService();
-			// Start background load of default profiles for @ mention suggestions (local-first)
-			startProfileSearchBackground();
-			// Initialize catalog preferences from localStorage
-			initCatalogs();
-		}
-	});
+<script lang="js">
+import { onMount } from 'svelte';
+import { browser } from '$app/environment';
+import { page } from '$app/stores';
+import { initAuth } from '$lib/stores/auth.svelte.js';
+import { initCatalogs } from '$lib/stores/catalogs.svelte.js';
+import { initOnlineStatus, isOnline } from '$lib/stores/online.svelte.js';
+import { isBackgroundRefreshing } from '$lib/stores/refresh-indicator.svelte.js';
+import { initNostrService } from '$lib/nostr';
+import { startProfileSearchBackground } from '$lib/services/profile-search';
+import Header from '$lib/components/layout/Header.svelte';
+import Footer from '$lib/components/layout/Footer.svelte';
+import NavigationProgress from '$lib/components/layout/NavigationProgress.svelte';
+import '../app.css';
+let { children } = $props();
+let online = $derived(isOnline());
+let backgroundRefreshing = $derived(isBackgroundRefreshing());
+const path = $derived($page.url.pathname);
+// ReachKit has its own layout (header + footer)
+let isReachKit = $derived(path.startsWith('/studio/reachkit'));
+// Determine header variant based on route
+let isLandingPage = $derived(path === '/');
+let isBrowsePage = $derived(path === '/discover' ||
+    path === '/apps' ||
+    path === '/stacks' ||
+    path === '/studio' ||
+    path === '/search');
+// Detail pages use their own contextual header (app and stack only; profile uses normal header)
+let isDetailPage = $derived(/^\/apps\/[^/]+$/.test(path) || /^\/stacks\/[^/]+$/.test(path));
+let headerVariant = $derived(isLandingPage ? 'landing' : path === '/studio' ? 'studio' : 'browse');
+// Determine page title for browse/studio/profile variant
+let pageTitle = $derived(path === '/discover'
+    ? 'Discover'
+    : path === '/apps'
+        ? 'Apps'
+        : path === '/stacks'
+            ? 'Stacks'
+            : path === '/studio'
+                ? 'Studio'
+                : path === '/search'
+                    ? 'Search'
+                    : /^\/profile\/[^/]+$/.test(path)
+                        ? 'Profile'
+                        : '');
+onMount(async () => {
+    if (browser) {
+        // Restore auth from localStorage so "logged in" persists across reloads/navigation
+        initAuth();
+        // Initialize online/offline detection
+        initOnlineStatus();
+        // Initialize Nostr service (cache, store, persistence)
+        await initNostrService();
+        // Start background load of default profiles for @ mention suggestions (local-first)
+        startProfileSearchBackground();
+        // Initialize catalog preferences from localStorage
+        initCatalogs();
+    }
+});
 </script>
 
 <div class="min-h-screen relative bg-background">

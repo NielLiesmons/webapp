@@ -1,25 +1,7 @@
-<script lang="ts">
-	import { formatDisplayDate } from '$lib/date';
-	import { ArrowRight } from 'lucide-svelte';
-
-	interface PostMeta {
-		title?: string;
-		date?: string;
-		draft?: boolean;
-		description?: string;
-		category?: string;
-	}
-
-	interface Post {
-		meta: PostMeta;
-		path: string;
-	}
-
-	interface PageData {
-		posts: Post[];
-	}
-
-	let { data }: { data: PageData } = $props();
+<script lang="js">
+import { formatDisplayDate } from '$lib/date';
+import { ArrowRight } from 'lucide-svelte';
+let { data } = $props();
 </script>
 
 <svelte:head>

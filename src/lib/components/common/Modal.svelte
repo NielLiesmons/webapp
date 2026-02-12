@@ -1,139 +1,92 @@
-<script lang="ts">
-  /**
-   * Modal - Reusable modal component
-   *
-   * Features:
-   * - Body scroll lock when open
-   * - Configurable max height (default 80vh)
-   * - All modals hug content by default (up to maxHeight)
-   * - Always bottom-aligned on mobile screens
-   * - Scrollable content within modal
-   * - Backdrop click and Escape key to close
-   */
-  import { fade, fly } from "svelte/transition";
-  import { cubicOut } from "svelte/easing";
-  import { browser } from "$app/environment";
-
-  interface Props {
-    open?: boolean;
-    ariaLabel?: string;
-    ariaLabelledby?: string | null;
-    align?: "center" | "bottom" | "top";
-    zIndex?: number;
-    maxWidth?: string;
-    wide?: boolean;
-    class?: string;
-    maxHeight?: number;
-    fillHeight?: boolean;
-    closeOnBackdropClick?: boolean;
-    closeOnEscape?: boolean;
-    /** When true, backdrop is transparent (e.g. when modal is nested inside another overlay) */
-    noBackdrop?: boolean;
-    children?: import("svelte").Snippet;
-    footer?: import("svelte").Snippet;
-  }
-
-  let {
-    open = $bindable(false),
-    ariaLabel = "Modal dialog",
-    ariaLabelledby = null,
-    align = "center",
-    zIndex = 50,
-    maxWidth = "max-w-lg",
-    wide = false,
-    class: className = "",
-    maxHeight = 80,
-    fillHeight = false,
-    closeOnBackdropClick = true,
-    closeOnEscape = true,
-    noBackdrop = false,
-    children,
-    footer,
-  }: Props = $props();
-
-  let modalElement = $state<HTMLElement | null>(null);
-  let isBottomAligned = $state(false);
-  let isMobile = $state(false);
-
-  const effectiveMaxWidth = $derived(wide ? "modal-wide" : maxWidth);
-  const actualAlignment = $derived(
-    align === "top"
-      ? "top"
-      : align === "bottom" || isBottomAligned || isMobile
+<script lang="js">
+/**
+ * Modal - Reusable modal component
+ *
+ * Features:
+ * - Body scroll lock when open
+ * - Configurable max height (default 80vh)
+ * - All modals hug content by default (up to maxHeight)
+ * - Always bottom-aligned on mobile screens
+ * - Scrollable content within modal
+ * - Backdrop click and Escape key to close
+ */
+import { fade, fly } from "svelte/transition";
+import { cubicOut } from "svelte/easing";
+import { browser } from "$app/environment";
+let { open = $bindable(false), ariaLabel = "Modal dialog", ariaLabelledby = null, align = "center", zIndex = 50, maxWidth = "max-w-lg", wide = false, class: className = "", maxHeight = 80, fillHeight = false, closeOnBackdropClick = true, closeOnEscape = true, noBackdrop = false, children, footer, } = $props();
+let modalElement = $state(null);
+let isBottomAligned = $state(false);
+let isMobile = $state(false);
+const effectiveMaxWidth = $derived(wide ? "modal-wide" : maxWidth);
+const actualAlignment = $derived(align === "top"
+    ? "top"
+    : align === "bottom" || isBottomAligned || isMobile
         ? "bottom"
-        : "center"
-  );
-
-  function checkMobile() {
+        : "center");
+function checkMobile() {
     if (browser) {
-      isMobile = window.innerWidth < 640;
+        isMobile = window.innerWidth < 640;
     }
-  }
-
-  function checkContentHeight() {
+}
+function checkContentHeight() {
     if (browser && modalElement) {
-      const threshold = window.innerHeight * (maxHeight / 100);
-      const contentHeight = modalElement.scrollHeight;
-      isBottomAligned = contentHeight > threshold || isMobile;
+        const threshold = window.innerHeight * (maxHeight / 100);
+        const contentHeight = modalElement.scrollHeight;
+        isBottomAligned = contentHeight > threshold || isMobile;
     }
-  }
-
-  function lockBodyScroll() {
+}
+function lockBodyScroll() {
     if (browser) {
-      const scrollY = window.scrollY;
-      document.body.style.position = "fixed";
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.left = "0";
-      document.body.style.right = "0";
-      document.body.style.overflow = "hidden";
-      document.body.dataset.scrollY = String(scrollY);
+        const scrollY = window.scrollY;
+        document.body.style.position = "fixed";
+        document.body.style.top = `-${scrollY}px`;
+        document.body.style.left = "0";
+        document.body.style.right = "0";
+        document.body.style.overflow = "hidden";
+        document.body.dataset.scrollY = String(scrollY);
     }
-  }
-
-  function unlockBodyScroll() {
+}
+function unlockBodyScroll() {
     if (browser) {
-      const scrollY = document.body.dataset.scrollY || "0";
-      document.body.style.position = "";
-      document.body.style.top = "";
-      document.body.style.left = "";
-      document.body.style.right = "";
-      document.body.style.overflow = "";
-      delete document.body.dataset.scrollY;
-      window.scrollTo(0, parseInt(scrollY));
+        const scrollY = document.body.dataset.scrollY || "0";
+        document.body.style.position = "";
+        document.body.style.top = "";
+        document.body.style.left = "";
+        document.body.style.right = "";
+        document.body.style.overflow = "";
+        delete document.body.dataset.scrollY;
+        window.scrollTo(0, parseInt(scrollY));
     }
-  }
-
-  $effect(() => {
+}
+$effect(() => {
     if (browser) {
-      if (open) {
-        checkMobile();
-        lockBodyScroll();
-        requestAnimationFrame(() => {
-          checkContentHeight();
-        });
-      } else {
-        unlockBodyScroll();
-        isBottomAligned = false;
-      }
+        if (open) {
+            checkMobile();
+            lockBodyScroll();
+            requestAnimationFrame(() => {
+                checkContentHeight();
+            });
+        }
+        else {
+            unlockBodyScroll();
+            isBottomAligned = false;
+        }
     }
-  });
-
-  function handleBackdropClick(e: MouseEvent) {
+});
+function handleBackdropClick(e) {
     if (closeOnBackdropClick && e.target === e.currentTarget) {
-      open = false;
+        open = false;
     }
-  }
-
-  function handleKeydown(e: KeyboardEvent) {
+}
+function handleKeydown(e) {
     if (closeOnEscape && e.key === "Escape") {
-      open = false;
+        open = false;
     }
-  }
-
-  function handleResize() {
+}
+function handleResize() {
     checkMobile();
     checkContentHeight();
-  }
+}
 </script>
 
 <svelte:window onkeydown={handleKeydown} onresize={handleResize} />

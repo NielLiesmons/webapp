@@ -1,58 +1,41 @@
-<script lang="ts">
-  import { pushState, replaceState } from '$app/navigation';
-  import { page } from '$app/stores';
-  import { get } from 'svelte/store';
-  import type { App } from '$lib/nostr';
-  import { queryStore, fetchEvents, parseRelease } from '$lib/nostr';
-  import { EVENT_KINDS, DEFAULT_CATALOG_RELAYS, PLATFORM_FILTER } from '$lib/config';
-  
-  interface Props {
-    app: App;
-  }
-  
-  let { app }: Props = $props();
-  
-  // Track prefetched apps to avoid duplicate fetches
-  const prefetched = new Set<string>();
-  
-  async function handleMouseEnter() {
+<script lang="js">
+import { pushState, replaceState } from '$app/navigation';
+import { page } from '$app/stores';
+import { get } from 'svelte/store';
+import { queryStore, fetchEvents, parseRelease } from '$lib/nostr';
+import { EVENT_KINDS, DEFAULT_CATALOG_RELAYS, PLATFORM_FILTER } from '$lib/config';
+let { app } = $props();
+// Track prefetched apps to avoid duplicate fetches
+const prefetched = new Set();
+async function handleMouseEnter() {
     const key = `${app.pubkey}:${app.dTag}`;
-    if (prefetched.has(key)) return;
+    if (prefetched.has(key))
+        return;
     prefetched.add(key);
-    
     // Release is already in store from the listing - query locally
     const aTagValue = `${EVENT_KINDS.APP}:${app.pubkey}:${app.dTag}`;
     const releases = queryStore({ kinds: [EVENT_KINDS.RELEASE], '#a': [aTagValue], ...PLATFORM_FILTER, limit: 1 });
-    
-    if (releases.length === 0) return;
-    
-    const release = parseRelease(releases[0]!);
-    if (release.artifacts.length === 0) return;
-    
+    if (releases.length === 0)
+        return;
+    const release = parseRelease(releases[0]);
+    if (release.artifacts.length === 0)
+        return;
     // Prefetch file metadata (1063) via cache cascade: EventStore → IndexedDB → Relays
-    await fetchEvents(
-      { kinds: [EVENT_KINDS.FILE_METADATA], ids: release.artifacts },
-      { relays: [...DEFAULT_CATALOG_RELAYS] }
-    );
-  }
-  
-  function handleClick(e: MouseEvent) {
+    await fetchEvents({ kinds: [EVENT_KINDS.FILE_METADATA], ids: release.artifacts }, { relays: [...DEFAULT_CATALOG_RELAYS] });
+}
+function handleClick(e) {
     // Prevent default navigation
     e.preventDefault();
-    
     // Save current scroll position in current history entry BEFORE navigating
-    const currentState = get(page).state as Record<string, unknown>;
+    const currentState = get(page).state;
     replaceState('', { ...currentState, scrollY: window.scrollY });
-    
     // Create a plain serializable object (history state must be cloneable)
     const appData = JSON.parse(JSON.stringify(app));
-    
     // Push state with app data - instant, no routing
     pushState(`/apps/${app.naddr}`, { selectedApp: appData });
-    
     // Scroll to top for detail view
     window.scrollTo(0, 0);
-  }
+}
 </script>
 
 <a href="/apps/{app.naddr}" class="app-card" onclick={handleClick} onmouseenter={handleMouseEnter}>

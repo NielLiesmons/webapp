@@ -1,111 +1,55 @@
-<script lang="ts">
-  /**
-   * ZapSliderModal - Full zap flow: slider amount + comment, then invoice QR + copy + open in wallet, then success.
-   * Aligned with local-first ARCHITECTURE; invoice from LNURL, receipt via relay subscription + EventStore.
-   */
-  import { onDestroy } from "svelte";
-  import { Loader2, AlertCircle, CheckCircle, Copy, Check } from "lucide-svelte";
-  import { generateSecretKey, finalizeEvent } from "nostr-tools/pure";
-  import type { EventTemplate, NostrEvent } from "nostr-tools/pure";
-  import { createZap, subscribeToZapReceipt } from "$lib/nostr";
-  import { getIsSignedIn, signEvent } from "$lib/stores/auth.svelte";
-  import Modal from "$lib/components/common/Modal.svelte";
-  import ZapSlider from "./ZapSlider.svelte";
-  import Zap from "$lib/components/icons/Zap.svelte";
-
-  /** Sign zap request with a fresh random keypair (for guest zaps). */
-  async function signWithAnonymousKey(template: EventTemplate): Promise<NostrEvent> {
+<script lang="js">
+/**
+ * ZapSliderModal - Full zap flow: slider amount + comment, then invoice QR + copy + open in wallet, then success.
+ * Aligned with local-first ARCHITECTURE; invoice from LNURL, receipt via relay subscription + EventStore.
+ */
+import { onDestroy } from "svelte";
+import { Loader2, AlertCircle, CheckCircle, Copy, Check } from "lucide-svelte";
+import { generateSecretKey, finalizeEvent } from "nostr-tools/pure";
+import { createZap, subscribeToZapReceipt } from "$lib/nostr";
+import { getIsSignedIn, signEvent } from "$lib/stores/auth.svelte.js";
+import Modal from "$lib/components/common/Modal.svelte";
+import ZapSlider from "./ZapSlider.svelte";
+import Zap from "$lib/components/icons/Zap.svelte";
+/** Sign zap request with a fresh random keypair (for guest zaps). */
+async function signWithAnonymousKey(template) {
     const sk = generateSecretKey();
-    return finalizeEvent(template, sk) as NostrEvent;
-  }
-
-  type ProfileHit = { pubkey: string; name?: string; displayName?: string; picture?: string };
-  type EmojiHit = { shortcode: string; url: string; source: string };
-
-  interface ZapTarget {
-    name?: string;
-    pubkey?: string;
-    dTag?: string;
-    id?: string;
-    pictureUrl?: string;
-  }
-
-  interface OtherZap {
-    amount: number;
-    profile?: { pictureUrl?: string; name?: string; pubkey?: string };
-  }
-
-  interface Props {
-    target?: ZapTarget | null;
-    publisherName?: string;
-    otherZaps?: OtherZap[];
-    isOpen?: boolean;
-    /** When true, no backdrop overlay (e.g. opened from inside another modal) */
-    nestedModal?: boolean;
-    searchProfiles?: (query: string) => Promise<ProfileHit[]>;
-    searchEmojis?: (query: string) => Promise<EmojiHit[]>;
-    onclose?: (event: { success: boolean }) => void;
-    onzapReceived?: (event: { zapReceipt: unknown }) => void;
-  }
-
-  let {
-    target = null,
-    publisherName = "",
-    otherZaps = [],
-    isOpen = $bindable(false),
-    nestedModal = false,
-    searchProfiles = async () => [],
-    searchEmojis = async () => [],
-    onclose,
-    onzapReceived,
-  }: Props = $props();
-
-  let sliderComponent = $state<{
-    getValue: () => number;
-    getMessage: () => string;
-    getSerializedContent?: () => { text: string; emojiTags: { shortcode: string; url: string }[]; mentions: string[] };
-  } | null>(null);
-  let zapValue = $state(100);
-  let message = $state("");
-  let loading = $state(false);
-  let error = $state("");
-  let invoice = $state<string | null>(null);
-  let invoiceLoading = $state(false);
-  let zapRequest = $state<{ id: string } | null>(null);
-  let copied = $state(false);
-  let step = $state<"slider" | "invoice" | "success">("slider");
-  let unsubscribe: (() => void) | null = null;
-  let waitingForReceipt = $state(false);
-  let showManualClose = $state(false);
-  let receiptTimeout: ReturnType<typeof setTimeout> | null = null;
-  let lastEmojiTags = $state<{ shortcode: string; url: string }[]>([]);
-
-  const isConnected = $derived(getIsSignedIn());
-
-  const qrCodeUrl = $derived(
-    invoice
-      ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&bgcolor=ffffff&color=000000&data=${encodeURIComponent("lightning:" + invoice.toUpperCase())}`
-      : null
-  );
-
-  const targetProfile = $derived(
-    target
-      ? { pictureUrl: target.pictureUrl, name: target.name, pubkey: target.pubkey }
-      : null
-  );
-
-  function cleanup() {
+    return finalizeEvent(template, sk);
+}
+let { target = null, publisherName = "", otherZaps = [], isOpen = $bindable(false), nestedModal = false, searchProfiles = async () => [], searchEmojis = async () => [], onclose, onzapReceived, } = $props();
+let sliderComponent = $state(null);
+let zapValue = $state(100);
+let message = $state("");
+let loading = $state(false);
+let error = $state("");
+let invoice = $state(null);
+let invoiceLoading = $state(false);
+let zapRequest = $state(null);
+let copied = $state(false);
+let step = $state("slider");
+let unsubscribe = null;
+let waitingForReceipt = $state(false);
+let showManualClose = $state(false);
+let receiptTimeout = null;
+let lastEmojiTags = $state([]);
+const isConnected = $derived(getIsSignedIn());
+const qrCodeUrl = $derived(invoice
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&bgcolor=ffffff&color=000000&data=${encodeURIComponent("lightning:" + invoice.toUpperCase())}`
+    : null);
+const targetProfile = $derived(target
+    ? { pictureUrl: target.pictureUrl, name: target.name, pubkey: target.pubkey }
+    : null);
+function cleanup() {
     if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
+        unsubscribe();
+        unsubscribe = null;
     }
     if (receiptTimeout) {
-      clearTimeout(receiptTimeout);
-      receiptTimeout = null;
+        clearTimeout(receiptTimeout);
+        receiptTimeout = null;
     }
-  }
-
-  function close(zapSuccessful = false) {
+}
+function close(zapSuccessful = false) {
     cleanup();
     zapValue = 100;
     message = "";
@@ -119,26 +63,19 @@
     showManualClose = false;
     isOpen = false;
     onclose?.({ success: zapSuccessful });
-  }
-
-  function handleValueChanged(e: { value: number }) {
+}
+function handleValueChanged(e) {
     zapValue = e.value;
-  }
-
-  function handleSendZap(e: {
-    amount: number;
-    message: string;
-    emojiTags: { shortcode: string; url: string }[];
-    mentions: string[];
-  }) {
+}
+function handleSendZap(e) {
     zapValue = e.amount;
     message = e.message;
     lastEmojiTags = e.emojiTags ?? [];
     handleZap();
-  }
-
-  async function handleZap() {
-    if (loading || zapValue < 1) return;
+}
+async function handleZap() {
+    if (loading || zapValue < 1)
+        return;
     // Show invoice step immediately with skeleton; createZap runs in background
     step = "invoice";
     invoice = null;
@@ -147,105 +84,97 @@
     loading = true;
     error = "";
     try {
-      const serialized = sliderComponent?.getSerializedContent?.();
-      const commentText = serialized?.text?.trim() ?? message;
-      const emojiTagsToSend = (serialized?.emojiTags?.length ? serialized.emojiTags : lastEmojiTags) ?? [];
-      const signer = isConnected
-        ? (signEvent as (t: EventTemplate) => Promise<unknown>)
-        : signWithAnonymousKey;
-      const result = await createZap(
-        target,
-        Math.round(zapValue),
-        commentText,
-        signer,
-        emojiTagsToSend.length ? emojiTagsToSend : undefined
-      );
-      invoice = result.invoice;
-      zapRequest = result.zapRequest;
-      startListeningForReceipt();
-      // Trigger browser wallet (Alby etc.) immediately when invoice is ready
-      if (result.invoice) {
-        queueMicrotask(() => openInWallet(result.invoice!));
-      }
-    } catch (err) {
-      console.error("Zap failed:", err);
-      error = err instanceof Error ? err.message : "Failed to create zap";
-      step = "slider";
-      waitingForReceipt = false;
-    } finally {
-      loading = false;
-      invoiceLoading = false;
+        const serialized = sliderComponent?.getSerializedContent?.();
+        const commentText = serialized?.text?.trim() ?? message;
+        const emojiTagsToSend = (serialized?.emojiTags?.length ? serialized.emojiTags : lastEmojiTags) ?? [];
+        const signer = isConnected
+            ? signEvent
+            : signWithAnonymousKey;
+        const result = await createZap(target, Math.round(zapValue), commentText, signer, emojiTagsToSend.length ? emojiTagsToSend : undefined);
+        invoice = result.invoice;
+        zapRequest = result.zapRequest;
+        startListeningForReceipt();
+        // Trigger browser wallet (Alby etc.) immediately when invoice is ready
+        if (result.invoice) {
+            queueMicrotask(() => openInWallet(result.invoice));
+        }
     }
-  }
-
-  function startListeningForReceipt() {
-    if (!zapRequest || !target?.pubkey) return;
+    catch (err) {
+        console.error("Zap failed:", err);
+        error = err instanceof Error ? err.message : "Failed to create zap";
+        step = "slider";
+        waitingForReceipt = false;
+    }
+    finally {
+        loading = false;
+        invoiceLoading = false;
+    }
+}
+function startListeningForReceipt() {
+    if (!zapRequest || !target?.pubkey)
+        return;
     const targetAddress = target.dTag ? `32267:${target.pubkey}:${target.dTag}` : null;
-    unsubscribe = subscribeToZapReceipt(
-      target.pubkey,
-      zapRequest.id,
-      (zapReceipt) => {
+    unsubscribe = subscribeToZapReceipt(target.pubkey, zapRequest.id, (zapReceipt) => {
         if (receiptTimeout) {
-          clearTimeout(receiptTimeout);
-          receiptTimeout = null;
+            clearTimeout(receiptTimeout);
+            receiptTimeout = null;
         }
         waitingForReceipt = false;
         step = "success";
         onzapReceived?.({ zapReceipt });
         setTimeout(() => close(true), 2000);
-      },
-      { invoice: invoice ?? undefined, appAddress: targetAddress, appEventId: target.id }
-    );
+    }, { invoice: invoice ?? undefined, appAddress: targetAddress, appEventId: target.id });
     receiptTimeout = setTimeout(() => {
-      showManualClose = true;
+        showManualClose = true;
     }, 30000);
-  }
-
-  function handleManualDone() {
+}
+function handleManualDone() {
     close(true);
-  }
-
-  async function copyInvoice() {
-    if (!invoice) return;
+}
+async function copyInvoice() {
+    if (!invoice)
+        return;
     try {
-      await navigator.clipboard.writeText(invoice);
-      copied = true;
-      setTimeout(() => (copied = false), 2000);
-    } catch (err) {
-      console.error("Failed to copy:", err);
+        await navigator.clipboard.writeText(invoice);
+        copied = true;
+        setTimeout(() => (copied = false), 2000);
     }
-  }
-
-  /** Try WebLN (Alby etc.) first, then fall back to lightning: URL so the browser can open a wallet. */
-  async function openInWallet(bolt11: string) {
-    const w = typeof window !== "undefined" ? (window as { webln?: { enable: () => Promise<void>; sendPayment: (inv: string) => Promise<{ preimage: string }> } }).webln : undefined;
+    catch (err) {
+        console.error("Failed to copy:", err);
+    }
+}
+/** Try WebLN (Alby etc.) first, then fall back to lightning: URL so the browser can open a wallet. */
+async function openInWallet(bolt11) {
+    const w = typeof window !== "undefined" ? window.webln : undefined;
     if (w) {
-      try {
-        await w.enable();
-        await w.sendPayment(bolt11);
-        // Payment sent; receipt listener will handle success
-      } catch (e) {
-        // User rejected or error; fall back to lightning: so another handler can try
         try {
-          const a = document.createElement("a");
-          a.href = `lightning:${bolt11}`;
-          a.rel = "noopener noreferrer";
-          a.target = "_blank";
-          a.click();
-        } catch {
-          // ignore
+            await w.enable();
+            await w.sendPayment(bolt11);
+            // Payment sent; receipt listener will handle success
         }
-      }
-    } else {
-      const a = document.createElement("a");
-      a.href = `lightning:${bolt11}`;
-      a.rel = "noopener noreferrer";
-      a.target = "_blank";
-      a.click();
+        catch (e) {
+            // User rejected or error; fall back to lightning: so another handler can try
+            try {
+                const a = document.createElement("a");
+                a.href = `lightning:${bolt11}`;
+                a.rel = "noopener noreferrer";
+                a.target = "_blank";
+                a.click();
+            }
+            catch {
+                // ignore
+            }
+        }
     }
-  }
-
-  function goBack() {
+    else {
+        const a = document.createElement("a");
+        a.href = `lightning:${bolt11}`;
+        a.rel = "noopener noreferrer";
+        a.target = "_blank";
+        a.click();
+    }
+}
+function goBack() {
     cleanup();
     step = "slider";
     invoice = null;
@@ -254,17 +183,15 @@
     error = "";
     waitingForReceipt = false;
     showManualClose = false;
-  }
-
-  function formatAmount(val: number): string {
+}
+function formatAmount(val) {
     return Math.round(val).toLocaleString("en-US");
-  }
-
-  onDestroy(() => cleanup());
-
-  $effect(() => {
-    if (!isOpen) cleanup();
-  });
+}
+onDestroy(() => cleanup());
+$effect(() => {
+    if (!isOpen)
+        cleanup();
+});
 </script>
 
 <Modal

@@ -1,52 +1,42 @@
-<script lang="ts">
-	import DocsNavNode from './DocsNavNode.svelte';
-	import { page } from '$app/stores';
-	import { untrack } from 'svelte';
-	import type { NavNode } from '$lib/content';
-
-	interface Props {
-		navigation?: NavNode[];
-		mobileMenuOpen?: boolean;
-		toggleMobileMenu?: () => void;
-	}
-
-	let { navigation = [], mobileMenuOpen = false, toggleMobileMenu = () => {} }: Props = $props();
-
-	let expanded = $state<Record<string, boolean>>({});
-
-	function toggle(id: string) {
-		expanded[id] = !expanded[id];
-		expanded = { ...expanded };
-	}
-
-	let currentPath = $derived($page.url.pathname);
-
-	// Initialize expansion from frontmatter (sidebar.open) and active path
-	$effect(() => {
-		if (navigation && navigation.length) {
-			const next: Record<string, boolean> = {};
-			function traverse(nodes: NavNode[], ancestors: NavNode[] = []) {
-				for (const node of nodes) {
-					if (node.expandedByDefault === true) {
-						next[node.id] = true;
-					}
-					const isSelfActive = !!(node.href && currentPath === node.href);
-					const isDescActive = !!(node.href && currentPath.startsWith(node.href + '/'));
-					if (isSelfActive || isDescActive) {
-						for (const a of ancestors) next[a.id] = true;
-						if (node.children && node.children.length) next[node.id] = true;
-					}
-					if (node.children && node.children.length) {
-						traverse(node.children, [...ancestors, node]);
-					}
-				}
-			}
-			traverse(navigation, []);
-			// Use untrack to read expanded without adding it as an effect dependency
-			const current = untrack(() => expanded);
-			expanded = { ...current, ...next };
-		}
-	});
+<script lang="js">
+import DocsNavNode from './DocsNavNode.svelte';
+import { page } from '$app/stores';
+import { untrack } from 'svelte';
+let { navigation = [], mobileMenuOpen = false, toggleMobileMenu = () => { } } = $props();
+let expanded = $state({});
+function toggle(id) {
+    expanded[id] = !expanded[id];
+    expanded = { ...expanded };
+}
+let currentPath = $derived($page.url.pathname);
+// Initialize expansion from frontmatter (sidebar.open) and active path
+$effect(() => {
+    if (navigation && navigation.length) {
+        const next = {};
+        function traverse(nodes, ancestors = []) {
+            for (const node of nodes) {
+                if (node.expandedByDefault === true) {
+                    next[node.id] = true;
+                }
+                const isSelfActive = !!(node.href && currentPath === node.href);
+                const isDescActive = !!(node.href && currentPath.startsWith(node.href + '/'));
+                if (isSelfActive || isDescActive) {
+                    for (const a of ancestors)
+                        next[a.id] = true;
+                    if (node.children && node.children.length)
+                        next[node.id] = true;
+                }
+                if (node.children && node.children.length) {
+                    traverse(node.children, [...ancestors, node]);
+                }
+            }
+        }
+        traverse(navigation, []);
+        // Use untrack to read expanded without adding it as an effect dependency
+        const current = untrack(() => expanded);
+        expanded = { ...current, ...next };
+    }
+});
 </script>
 
 <!-- Mobile menu overlay -->

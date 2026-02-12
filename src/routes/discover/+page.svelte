@@ -1,240 +1,194 @@
-<script lang="ts">
-	import { onMount } from 'svelte';
-	import { browser } from '$app/environment';
-	import { beforeNavigate } from '$app/navigation';
-	import { wheelScroll } from '$lib/actions/wheelScroll.js';
-	import SectionHeader from '$lib/components/cards/SectionHeader.svelte';
-	import AppSmallCard from '$lib/components/cards/AppSmallCard.svelte';
-	import AppStackCard from '$lib/components/cards/AppStackCard.svelte';
-	import SkeletonLoader from '$lib/components/common/SkeletonLoader.svelte';
-	import {
-		getApps,
-		getHasMore,
-		isRefreshing,
-		isLoadingMore,
-		isStoreInitialized,
-		initWithPrerenderedData,
-		scheduleRefresh,
-		loadMore
-	} from '$lib/stores/nostr.svelte';
-	import {
-		getStacks,
-		isStacksInitialized,
-		initWithPrerenderedStacks,
-		scheduleStacksRefresh,
-		resolveStackApps,
-		getResolvedStacks,
-		setResolvedStacks
-	} from '$lib/stores/stacks.svelte';
-	import { nip19 } from 'nostr-tools';
-	import type { NostrEvent } from 'nostr-tools';
-	import { encodeAppNaddr, encodeStackNaddr, type App, type AppStack } from '$lib/nostr/models';
-	import { fetchProfile } from '$lib/nostr/service';
-	import { parseProfile } from '$lib/nostr/models';
-	import type { PageData } from './$types';
-
-	// Server-provided data
-	let { data }: { data: PageData } = $props();
-	const seedEvents = $derived(
-		((data as PageData & { seedEvents?: NostrEvent[] }).seedEvents ?? [])
-	);
-
-	// Refs for horizontal scroll containers
-	let appsScrollContainer: HTMLElement | null = $state(null);
-	let stacksScrollContainer: HTMLElement | null = $state(null);
-
-	// Save scroll positions before navigating away
-	beforeNavigate(() => {
-		if (!browser) return;
-
-		const scrollState = {
-			scrollY: window.scrollY,
-			appsScrollX: appsScrollContainer?.scrollLeft ?? 0,
-			stacksScrollX: stacksScrollContainer?.scrollLeft ?? 0,
-			timestamp: Date.now()
-		};
-		sessionStorage.setItem('discover_scroll', JSON.stringify(scrollState));
-	});
-
-	// Restore scroll positions on mount (when coming back)
-	let pendingScrollRestore: { scrollY: number; appsScrollX: number; stacksScrollX: number } | null =
-		null;
-
-	function restoreScrollPositions() {
-		const saved = sessionStorage.getItem('discover_scroll');
-		if (saved) {
-			try {
-				const scrollState = JSON.parse(saved);
-				// Only restore if saved within last 5 minutes (avoid stale data)
-				if (Date.now() - scrollState.timestamp < 5 * 60 * 1000) {
-					pendingScrollRestore = scrollState;
-					// Restore vertical scroll immediately
-					if (scrollState.scrollY > 0) {
-						window.scrollTo(0, scrollState.scrollY);
-					}
-					// Try to restore horizontal positions immediately
-					tryRestoreHorizontalScroll();
-				}
-			} catch (e) {
-				// Ignore parse errors
-			}
-			// Clear after restoring
-			sessionStorage.removeItem('discover_scroll');
-		}
-	}
-
-	function tryRestoreHorizontalScroll() {
-		if (!pendingScrollRestore) return;
-
-		let restored = false;
-		if (appsScrollContainer && pendingScrollRestore.appsScrollX > 0) {
-			appsScrollContainer.scrollLeft = pendingScrollRestore.appsScrollX;
-			restored = true;
-		}
-		if (stacksScrollContainer && pendingScrollRestore.stacksScrollX > 0) {
-			stacksScrollContainer.scrollLeft = pendingScrollRestore.stacksScrollX;
-			restored = true;
-		}
-
-		// If both containers exist and we restored, clear pending
-		if (appsScrollContainer && stacksScrollContainer) {
-			pendingScrollRestore = null;
-		} else if (!restored) {
-			// Containers not ready, try again next frame
-			requestAnimationFrame(tryRestoreHorizontalScroll);
-		}
-	}
-
-	// Also try to restore when scroll containers become available
-	$effect(() => {
-		if (browser && pendingScrollRestore && (appsScrollContainer || stacksScrollContainer)) {
-			tryRestoreHorizontalScroll();
-		}
-	});
-
-	// Reactive state from stores
-	const storeApps = $derived(getApps());
-	const storeInitialized = $derived(isStoreInitialized());
-	const stacks = $derived(getStacks());
-	const hasMore = $derived(getHasMore());
-	const refreshing = $derived(isRefreshing());
-	const loadingMore = $derived(isLoadingMore());
-	const stacksInitialized = $derived(isStacksInitialized());
-
-	// Use prerendered data until store is initialized, then use store data
-	const apps = $derived(storeInitialized ? storeApps : data.apps);
-
-	// Horizontal infinite scroll: load more when near right edge
-	const HORIZONTAL_SCROLL_THRESHOLD = 500; // pixels from right edge - load early for smooth experience
-
-	function handleAppsScroll() {
-		if (!appsScrollContainer || !hasMore || loadingMore) return;
-
-		const { scrollLeft, scrollWidth, clientWidth } = appsScrollContainer;
-		const distanceFromEnd = scrollWidth - scrollLeft - clientWidth;
-
-		if (distanceFromEnd < HORIZONTAL_SCROLL_THRESHOLD) {
-			loadMore();
-		}
-	}
-
-	// Resolved stacks with apps and creators - use cached version from store
-	const cachedResolvedStacks = $derived(getResolvedStacks());
-	let stacksLoading = $state(false);
-
-	// Group apps into columns of 4 for horizontal scroll
-	function getAppColumns(appList: App[], itemsPerColumn = 4) {
-		const columns: App[][] = [];
-		for (let i = 0; i < appList.length; i += itemsPerColumn) {
-			columns.push(appList.slice(i, i + itemsPerColumn));
-		}
-		return columns;
-	}
-
-	const appColumns = $derived(getAppColumns(apps, 4));
-
-	function getAppUrl(app: App): string {
-		return `/apps/${app.naddr}`;
-	}
-
-	function getStackUrl(stack: { pubkey: string; dTag: string }): string {
-		return `/stacks/${encodeStackNaddr(stack.pubkey, stack.dTag)}`;
-	}
-
-	async function loadResolvedStacks() {
-		if (!browser || stacks.length === 0) return;
-
-		stacksLoading = true;
-
-		try {
-			const resolved = await Promise.all(
-				stacks.slice(0, 20).map(async (stack) => {
-					// Resolve apps for the stack
-					const stackApps = await resolveStackApps(stack);
-
-					// Fetch creator profile from social relays
-					let creator = undefined;
-					if (stack.pubkey) {
-						try {
-							const profileEvent = await fetchProfile(stack.pubkey);
-							if (profileEvent) {
-								const profile = parseProfile(profileEvent);
-								creator = {
-									name: profile.displayName || profile.name,
-									picture: profile.picture,
-									pubkey: stack.pubkey,
-									npub: nip19.npubEncode(stack.pubkey)
-								};
-							}
-						} catch (e) {
-							// Profile fetch failed, continue without creator
-						}
-					}
-
-					return {
-						name: stack.title,
-						description: stack.description,
-						apps: stackApps,
-						creator,
-						pubkey: stack.pubkey,
-						dTag: stack.dTag
-					};
-				})
-			);
-
-			setResolvedStacks(resolved);
-		} catch (err) {
-			console.error('Error resolving stacks:', err);
-		} finally {
-			stacksLoading = false;
-		}
-	}
-
-	// Load stacks when they become available (only if not already cached)
-	$effect(() => {
-		if (stacks.length > 0 && cachedResolvedStacks.length === 0 && !stacksLoading) {
-			loadResolvedStacks();
-		}
-	});
-
-	onMount(async () => {
-		if (!browser) return;
-
-		// Initialize store with prerendered data (or use existing if already initialized from /apps)
-		if (!isStoreInitialized()) {
-			initWithPrerenderedData(data.apps, data.nextCursor, seedEvents);
-		}
-		if (!isStacksInitialized()) {
-			initWithPrerenderedStacks([], null);
-		}
-
-		// Schedule background refresh for apps and stacks
-		scheduleRefresh();
-		scheduleStacksRefresh();
-
-		// Restore scroll positions if coming back from another page
-		restoreScrollPositions();
-	});
+<script lang="js">
+import { onMount } from 'svelte';
+import { browser } from '$app/environment';
+import { beforeNavigate } from '$app/navigation';
+import { wheelScroll } from '$lib/actions/wheelScroll.js';
+import SectionHeader from '$lib/components/cards/SectionHeader.svelte';
+import AppSmallCard from '$lib/components/cards/AppSmallCard.svelte';
+import AppStackCard from '$lib/components/cards/AppStackCard.svelte';
+import SkeletonLoader from '$lib/components/common/SkeletonLoader.svelte';
+import { getApps, getHasMore, isRefreshing, isLoadingMore, isStoreInitialized, initWithPrerenderedData, scheduleRefresh, loadMore } from '$lib/stores/nostr.svelte.js';
+import { getStacks, isStacksInitialized, initWithPrerenderedStacks, scheduleStacksRefresh, resolveStackApps, getResolvedStacks, setResolvedStacks } from '$lib/stores/stacks.svelte.js';
+import { nip19 } from 'nostr-tools';
+import { encodeAppNaddr, encodeStackNaddr } from '$lib/nostr/models';
+import { fetchProfile } from '$lib/nostr/service';
+import { parseProfile } from '$lib/nostr/models';
+// Server-provided data
+let { data } = $props();
+const seedEvents = $derived((data.seedEvents ?? []));
+// Refs for horizontal scroll containers
+let appsScrollContainer = $state(null);
+let stacksScrollContainer = $state(null);
+// Save scroll positions before navigating away
+beforeNavigate(() => {
+    if (!browser)
+        return;
+    const scrollState = {
+        scrollY: window.scrollY,
+        appsScrollX: appsScrollContainer?.scrollLeft ?? 0,
+        stacksScrollX: stacksScrollContainer?.scrollLeft ?? 0,
+        timestamp: Date.now()
+    };
+    sessionStorage.setItem('discover_scroll', JSON.stringify(scrollState));
+});
+// Restore scroll positions on mount (when coming back)
+let pendingScrollRestore = null;
+function restoreScrollPositions() {
+    const saved = sessionStorage.getItem('discover_scroll');
+    if (saved) {
+        try {
+            const scrollState = JSON.parse(saved);
+            // Only restore if saved within last 5 minutes (avoid stale data)
+            if (Date.now() - scrollState.timestamp < 5 * 60 * 1000) {
+                pendingScrollRestore = scrollState;
+                // Restore vertical scroll immediately
+                if (scrollState.scrollY > 0) {
+                    window.scrollTo(0, scrollState.scrollY);
+                }
+                // Try to restore horizontal positions immediately
+                tryRestoreHorizontalScroll();
+            }
+        }
+        catch (e) {
+            // Ignore parse errors
+        }
+        // Clear after restoring
+        sessionStorage.removeItem('discover_scroll');
+    }
+}
+function tryRestoreHorizontalScroll() {
+    if (!pendingScrollRestore)
+        return;
+    let restored = false;
+    if (appsScrollContainer && pendingScrollRestore.appsScrollX > 0) {
+        appsScrollContainer.scrollLeft = pendingScrollRestore.appsScrollX;
+        restored = true;
+    }
+    if (stacksScrollContainer && pendingScrollRestore.stacksScrollX > 0) {
+        stacksScrollContainer.scrollLeft = pendingScrollRestore.stacksScrollX;
+        restored = true;
+    }
+    // If both containers exist and we restored, clear pending
+    if (appsScrollContainer && stacksScrollContainer) {
+        pendingScrollRestore = null;
+    }
+    else if (!restored) {
+        // Containers not ready, try again next frame
+        requestAnimationFrame(tryRestoreHorizontalScroll);
+    }
+}
+// Also try to restore when scroll containers become available
+$effect(() => {
+    if (browser && pendingScrollRestore && (appsScrollContainer || stacksScrollContainer)) {
+        tryRestoreHorizontalScroll();
+    }
+});
+// Reactive state from stores
+const storeApps = $derived(getApps());
+const storeInitialized = $derived(isStoreInitialized());
+const stacks = $derived(getStacks());
+const hasMore = $derived(getHasMore());
+const refreshing = $derived(isRefreshing());
+const loadingMore = $derived(isLoadingMore());
+const stacksInitialized = $derived(isStacksInitialized());
+// Use prerendered data until store is initialized, then use store data
+const apps = $derived(storeInitialized ? storeApps : data.apps);
+// Horizontal infinite scroll: load more when near right edge
+const HORIZONTAL_SCROLL_THRESHOLD = 500; // pixels from right edge - load early for smooth experience
+function handleAppsScroll() {
+    if (!appsScrollContainer || !hasMore || loadingMore)
+        return;
+    const { scrollLeft, scrollWidth, clientWidth } = appsScrollContainer;
+    const distanceFromEnd = scrollWidth - scrollLeft - clientWidth;
+    if (distanceFromEnd < HORIZONTAL_SCROLL_THRESHOLD) {
+        loadMore();
+    }
+}
+// Resolved stacks with apps and creators - use cached version from store
+const cachedResolvedStacks = $derived(getResolvedStacks());
+let stacksLoading = $state(false);
+// Group apps into columns of 4 for horizontal scroll
+function getAppColumns(appList, itemsPerColumn = 4) {
+    const columns = [];
+    for (let i = 0; i < appList.length; i += itemsPerColumn) {
+        columns.push(appList.slice(i, i + itemsPerColumn));
+    }
+    return columns;
+}
+const appColumns = $derived(getAppColumns(apps, 4));
+function getAppUrl(app) {
+    return `/apps/${app.naddr}`;
+}
+function getStackUrl(stack) {
+    return `/stacks/${encodeStackNaddr(stack.pubkey, stack.dTag)}`;
+}
+async function loadResolvedStacks() {
+    if (!browser || stacks.length === 0)
+        return;
+    stacksLoading = true;
+    try {
+        const resolved = await Promise.all(stacks.slice(0, 20).map(async (stack) => {
+            // Resolve apps for the stack
+            const stackApps = await resolveStackApps(stack);
+            // Fetch creator profile from social relays
+            let creator = undefined;
+            if (stack.pubkey) {
+                try {
+                    const profileEvent = await fetchProfile(stack.pubkey);
+                    if (profileEvent) {
+                        const profile = parseProfile(profileEvent);
+                        creator = {
+                            name: profile.displayName || profile.name,
+                            picture: profile.picture,
+                            pubkey: stack.pubkey,
+                            npub: nip19.npubEncode(stack.pubkey)
+                        };
+                    }
+                }
+                catch (e) {
+                    // Profile fetch failed, continue without creator
+                }
+            }
+            return {
+                name: stack.title,
+                description: stack.description,
+                apps: stackApps,
+                creator,
+                pubkey: stack.pubkey,
+                dTag: stack.dTag
+            };
+        }));
+        setResolvedStacks(resolved);
+    }
+    catch (err) {
+        console.error('Error resolving stacks:', err);
+    }
+    finally {
+        stacksLoading = false;
+    }
+}
+// Load stacks when they become available (only if not already cached)
+$effect(() => {
+    if (stacks.length > 0 && cachedResolvedStacks.length === 0 && !stacksLoading) {
+        loadResolvedStacks();
+    }
+});
+onMount(async () => {
+    if (!browser)
+        return;
+    // Initialize store with prerendered data (or use existing if already initialized from /apps)
+    if (!isStoreInitialized()) {
+        initWithPrerenderedData(data.apps, data.nextCursor, seedEvents);
+    }
+    if (!isStacksInitialized()) {
+        initWithPrerenderedStacks([], null);
+    }
+    // Schedule background refresh for apps and stacks
+    scheduleRefresh();
+    scheduleStacksRefresh();
+    // Restore scroll positions if coming back from another page
+    restoreScrollPositions();
+});
 </script>
 
 <svelte:head>

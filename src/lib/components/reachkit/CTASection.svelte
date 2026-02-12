@@ -1,33 +1,32 @@
-<script lang="ts">
-  let email = '';
-  let submitted = false;
-  let loading = false;
-  let error = '';
-
-  async function handleSubmit(e: Event) {
+<script lang="js">
+let email = '';
+let submitted = false;
+let loading = false;
+let error = '';
+async function handleSubmit(e) {
     e.preventDefault();
-    if (!email) return;
-
+    if (!email)
+        return;
     loading = true;
     error = '';
-
     try {
-      const response = await fetch('https://formspree.io/f/mkglwdwa', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-
-      if (!response.ok) throw new Error('Failed to join waitlist');
-
-      submitted = true;
-    } catch (err) {
-      error = 'Something went wrong. Please try again.';
-      console.error('Waitlist error:', err);
-    } finally {
-      loading = false;
+        const response = await fetch('https://formspree.io/f/mkglwdwa', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email }),
+        });
+        if (!response.ok)
+            throw new Error('Failed to join waitlist');
+        submitted = true;
     }
-  }
+    catch (err) {
+        error = 'Something went wrong. Please try again.';
+        console.error('Waitlist error:', err);
+    }
+    finally {
+        loading = false;
+    }
+}
 </script>
 
 <section class="py-24 lg:py-32 border-t border-border/50 relative overflow-hidden" id="waitlist">

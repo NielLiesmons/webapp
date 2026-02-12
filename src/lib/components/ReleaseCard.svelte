@@ -1,20 +1,13 @@
-<script lang="ts">
-  import type { Release } from '$lib/nostr';
-  import { renderMarkdown } from '$lib/utils/markdown';
-  
-  interface Props {
-    release: Release;
-  }
-  
-  let { release }: Props = $props();
-  
-  function formatDate(timestamp: number): string {
+<script lang="js">
+import { renderMarkdown } from '$lib/utils/markdown';
+let { release } = $props();
+function formatDate(timestamp) {
     return new Date(timestamp * 1000).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
     });
-  }
+}
 </script>
 
 <div class="release-card">

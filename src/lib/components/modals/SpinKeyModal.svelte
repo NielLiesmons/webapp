@@ -1,240 +1,200 @@
-<script lang="ts">
-  /**
-   * SpinKeyModal - Slot machine style nsec key generator
-   *
-   * Features:
-   * - 12 spinning slots showing nsec characters (3 rows of 4)
-   * - Draggable handle to trigger spin
-   * - Staggered animation with custom easing
-   * - Auto-proceeds after spin completes
-   *
-   * @see zaplab_design/lib/src/widgets/keys/slot_machine.dart
-   */
-  import { onMount, onDestroy } from "svelte";
-  import { browser } from "$app/environment";
-  import Modal from "$lib/components/common/Modal.svelte";
-  import { Download } from "$lib/components/icons";
-  import * as nip19 from "nostr-tools/nip19";
-  import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
-
-  function bytesToHex(bytes: Uint8Array): string {
+<script lang="js">
+/**
+ * SpinKeyModal - Slot machine style nsec key generator
+ *
+ * Features:
+ * - 12 spinning slots showing nsec characters (3 rows of 4)
+ * - Draggable handle to trigger spin
+ * - Staggered animation with custom easing
+ * - Auto-proceeds after spin completes
+ *
+ * @see zaplab_design/lib/src/widgets/keys/slot_machine.dart
+ */
+import { onMount, onDestroy } from "svelte";
+import { browser } from "$app/environment";
+import Modal from "$lib/components/common/Modal.svelte";
+import { Download } from "$lib/components/icons";
+import * as nip19 from "nostr-tools/nip19";
+import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
+function bytesToHex(bytes) {
     return Array.from(bytes)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-  }
-
-  interface Props {
-    open?: boolean;
-    profileName?: string;
-    /** Delay in ms after spin completes before proceeding */
-    spinCompleteDelay?: number;
-    /** z-index for the modal (use 55+ when opening on top of GetStarted to avoid glitch) */
-    zIndex?: number;
-    onspinComplete?: (event: { nsec: string; secretKeyHex: string; pubkey: string; profileName: string }) => void;
-    onuseExistingKey?: () => void;
-  }
-
-  let {
-    open = $bindable(false),
-    profileName = "",
-    spinCompleteDelay = 1200,
-    zIndex = 55,
-    onspinComplete,
-    onuseExistingKey,
-  }: Props = $props();
-
-  // Bech32 characters used in nsec encoding (32 chars)
-  const BECH32_CHARS = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
-
-  // Layout constants
-  const TOTAL_HEIGHT = 296;
-  const DISK_HEIGHT = 88;
-  const SLOT_TOP = (TOTAL_HEIGHT - DISK_HEIGHT) / 2; // 104 - centered vertically
-  const CENTER_Y = SLOT_TOP + DISK_HEIGHT / 2; // 148 - center of slot
-  const HANDLE_MIN_OFFSET = 40;
-  const HANDLE_MAX_OFFSET = 256;
-
-  let nsec = $state("");
-  let secretKeyHex = $state("");
-  let pubkey = $state("");
-  let slotParts = $state<string[]>(Array(12).fill("").map((_, i) => (i < 9 ? "-----" : "------")));
-  let currentDisplayParts = $state<string[]>(Array(12).fill("").map((_, i) => (i < 9 ? "-----" : "------")));
-  let isSpinning = $state(false);
-  let hasSpun = $state(false);
-
-  let handleOffset = $state(HANDLE_MIN_OFFSET);
-  let isDragging = $state(false);
-  let handleContainerEl = $state<HTMLElement | null>(null);
-
-  // Mutable array for cleanup only (no reactivity needed)
-  const slotIntervals: ReturnType<typeof setInterval>[] = [];
-
-  const isBottomHalf = $derived(handleOffset > CENTER_Y);
-  const barHeight = $derived(Math.abs(handleOffset - CENTER_Y));
-  const barTop = $derived(isBottomHalf ? CENTER_Y : handleOffset);
-
-  const distanceFromCenter = $derived(Math.abs(handleOffset - CENTER_Y));
-  const maxDistanceFromCenter = $derived(CENTER_Y - HANDLE_MIN_OFFSET);
-  const circleProgress = $derived(1.0 - distanceFromCenter / maxDistanceFromCenter);
-  const circleSize = $derived(44 + 6 * Math.max(0, circleProgress));
-
-  function generateNewKey() {
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+}
+let { open = $bindable(false), profileName = "", spinCompleteDelay = 1200, zIndex = 55, onspinComplete, onuseExistingKey, } = $props();
+// Bech32 characters used in nsec encoding (32 chars)
+const BECH32_CHARS = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+// Layout constants
+const TOTAL_HEIGHT = 296;
+const DISK_HEIGHT = 88;
+const SLOT_TOP = (TOTAL_HEIGHT - DISK_HEIGHT) / 2; // 104 - centered vertically
+const CENTER_Y = SLOT_TOP + DISK_HEIGHT / 2; // 148 - center of slot
+const HANDLE_MIN_OFFSET = 40;
+const HANDLE_MAX_OFFSET = 256;
+let nsec = $state("");
+let secretKeyHex = $state("");
+let pubkey = $state("");
+let slotParts = $state(Array(12).fill("").map((_, i) => (i < 9 ? "-----" : "------")));
+let currentDisplayParts = $state(Array(12).fill("").map((_, i) => (i < 9 ? "-----" : "------")));
+let isSpinning = $state(false);
+let hasSpun = $state(false);
+let handleOffset = $state(HANDLE_MIN_OFFSET);
+let isDragging = $state(false);
+let handleContainerEl = $state(null);
+// Mutable array for cleanup only (no reactivity needed)
+const slotIntervals = [];
+const isBottomHalf = $derived(handleOffset > CENTER_Y);
+const barHeight = $derived(Math.abs(handleOffset - CENTER_Y));
+const barTop = $derived(isBottomHalf ? CENTER_Y : handleOffset);
+const distanceFromCenter = $derived(Math.abs(handleOffset - CENTER_Y));
+const maxDistanceFromCenter = $derived(CENTER_Y - HANDLE_MIN_OFFSET);
+const circleProgress = $derived(1.0 - distanceFromCenter / maxDistanceFromCenter);
+const circleSize = $derived(44 + 6 * Math.max(0, circleProgress));
+function generateNewKey() {
     const secretKey = generateSecretKey();
     secretKeyHex = bytesToHex(secretKey);
     pubkey = getPublicKey(secretKey);
     nsec = nip19.nsecEncode(secretKey);
     slotParts = splitNsecIntoParts(nsec);
-  }
-
-  function splitNsecIntoParts(nsecStr: string): string[] {
-    const parts: string[] = [];
+}
+function splitNsecIntoParts(nsecStr) {
+    const parts = [];
     let pos = 0;
     for (let i = 0; i < 12; i++) {
-      const chunkSize = i < 9 ? 5 : 6;
-      parts.push(nsecStr.substring(pos, pos + chunkSize).toUpperCase());
-      pos += chunkSize;
+        const chunkSize = i < 9 ? 5 : 6;
+        parts.push(nsecStr.substring(pos, pos + chunkSize).toUpperCase());
+        pos += chunkSize;
     }
     return parts;
-  }
-
-  function getRandomBech32String(length: number): string {
+}
+function getRandomBech32String(length) {
     let result = "";
     for (let i = 0; i < length; i++) {
-      result += BECH32_CHARS[Math.floor(Math.random() * BECH32_CHARS.length)];
+        result += BECH32_CHARS[Math.floor(Math.random() * BECH32_CHARS.length)];
     }
     return result.toUpperCase();
-  }
-
-  function settleSlot(index: number, targetValue: string, charLength: number) {
+}
+function settleSlot(index, targetValue, charLength) {
     let count = 0;
     const settleInterval = setInterval(() => {
-      count++;
-      if (count >= 4) {
-        clearInterval(settleInterval);
-        currentDisplayParts = currentDisplayParts.map((p, i) => (i === index ? targetValue : p));
-      } else {
-        currentDisplayParts = currentDisplayParts.map((p, i) => (i === index ? getRandomBech32String(charLength) : p));
-      }
+        count++;
+        if (count >= 4) {
+            clearInterval(settleInterval);
+            currentDisplayParts = currentDisplayParts.map((p, i) => (i === index ? targetValue : p));
+        }
+        else {
+            currentDisplayParts = currentDisplayParts.map((p, i) => (i === index ? getRandomBech32String(charLength) : p));
+        }
     }, 60);
-  }
-
-  function spin() {
-    if (isSpinning) return;
-
+}
+function spin() {
+    if (isSpinning)
+        return;
     isSpinning = true;
     generateNewKey();
-
     slotIntervals.forEach((id) => clearInterval(id));
     slotIntervals.length = 0;
-
     slotParts.forEach((targetValue, index) => {
-      const startDelay = index * 100;
-      const spinDuration = 2000;
-      const charLength = index < 9 ? 5 : 6;
-
-      setTimeout(() => {
-        const intervalId = setInterval(() => {
-          currentDisplayParts = currentDisplayParts.map((p, i) => (i === index ? getRandomBech32String(charLength) : p));
-        }, 50);
-        slotIntervals[index] = intervalId;
-
+        const startDelay = index * 100;
+        const spinDuration = 2000;
+        const charLength = index < 9 ? 5 : 6;
         setTimeout(() => {
-          const id = slotIntervals[index];
-          if (id) clearInterval(id);
-          settleSlot(index, targetValue, charLength);
-        }, spinDuration);
-      }, startDelay);
+            const intervalId = setInterval(() => {
+                currentDisplayParts = currentDisplayParts.map((p, i) => (i === index ? getRandomBech32String(charLength) : p));
+            }, 50);
+            slotIntervals[index] = intervalId;
+            setTimeout(() => {
+                const id = slotIntervals[index];
+                if (id)
+                    clearInterval(id);
+                settleSlot(index, targetValue, charLength);
+            }, spinDuration);
+        }, startDelay);
     });
-
     const totalDuration = 2000 + 11 * 100 + 300;
     setTimeout(() => {
-      isSpinning = false;
-      hasSpun = true;
-      setTimeout(() => {
-        onspinComplete?.({ nsec, secretKeyHex, pubkey, profileName });
-      }, spinCompleteDelay);
+        isSpinning = false;
+        hasSpun = true;
+        setTimeout(() => {
+            onspinComplete?.({ nsec, secretKeyHex, pubkey, profileName });
+        }, spinCompleteDelay);
     }, totalDuration);
-  }
-
-  function handleDragStart(e: MouseEvent | TouchEvent) {
-    if (isSpinning) return;
+}
+function handleDragStart(e) {
+    if (isSpinning)
+        return;
     isDragging = true;
     e.preventDefault();
     setupGlobalListeners();
-  }
-
-  function handleDragMove(e: MouseEvent | TouchEvent) {
-    if (!isDragging || isSpinning || !handleContainerEl) return;
-    const clientY = "touches" in e ? e.touches[0]?.clientY ?? 0 : (e as MouseEvent).clientY;
+}
+function handleDragMove(e) {
+    if (!isDragging || isSpinning || !handleContainerEl)
+        return;
+    const clientY = "touches" in e ? e.touches[0]?.clientY ?? 0 : e.clientY;
     const rect = handleContainerEl.getBoundingClientRect();
     const relativeY = clientY - rect.top;
     handleOffset = Math.max(HANDLE_MIN_OFFSET, Math.min(HANDLE_MAX_OFFSET, relativeY));
-  }
-
-  function handleDragEnd() {
-    if (!isDragging) return;
+}
+function handleDragEnd() {
+    if (!isDragging)
+        return;
     isDragging = false;
     cleanupGlobalListeners();
-    if (handleOffset > CENTER_Y + 30) spin();
+    if (handleOffset > CENTER_Y + 30)
+        spin();
     animateHandleBack();
-  }
-
-  function animateHandleBack() {
+}
+function animateHandleBack() {
     const startOffset = handleOffset;
     const startTime = performance.now();
     const duration = 200;
-    function animate(currentTime: number) {
-      const elapsed = currentTime - startTime;
-      const t = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - t, 3);
-      handleOffset = startOffset + (HANDLE_MIN_OFFSET - startOffset) * eased;
-      if (t < 1) requestAnimationFrame(animate);
+    function animate(currentTime) {
+        const elapsed = currentTime - startTime;
+        const t = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - t, 3);
+        handleOffset = startOffset + (HANDLE_MIN_OFFSET - startOffset) * eased;
+        if (t < 1)
+            requestAnimationFrame(animate);
     }
     requestAnimationFrame(animate);
-  }
-
-  function setupGlobalListeners() {
+}
+function setupGlobalListeners() {
     if (browser) {
-      window.addEventListener("mousemove", handleDragMove as (e: MouseEvent) => void);
-      window.addEventListener("mouseup", handleDragEnd);
-      window.addEventListener("touchmove", handleDragMove as (e: TouchEvent) => void, { passive: false });
-      window.addEventListener("touchend", handleDragEnd);
+        window.addEventListener("mousemove", handleDragMove);
+        window.addEventListener("mouseup", handleDragEnd);
+        window.addEventListener("touchmove", handleDragMove, { passive: false });
+        window.addEventListener("touchend", handleDragEnd);
     }
-  }
-
-  function cleanupGlobalListeners() {
+}
+function cleanupGlobalListeners() {
     if (browser) {
-      window.removeEventListener("mousemove", handleDragMove as (e: MouseEvent) => void);
-      window.removeEventListener("mouseup", handleDragEnd);
-      window.removeEventListener("touchmove", handleDragMove as (e: TouchEvent) => void);
-      window.removeEventListener("touchend", handleDragEnd);
+        window.removeEventListener("mousemove", handleDragMove);
+        window.removeEventListener("mouseup", handleDragEnd);
+        window.removeEventListener("touchmove", handleDragMove);
+        window.removeEventListener("touchend", handleDragEnd);
     }
-  }
-
-  function handleExistingKey() {
+}
+function handleExistingKey() {
     onuseExistingKey?.();
-  }
-
-  onMount(() => {
+}
+onMount(() => {
     generateNewKey();
-  });
-
-  onDestroy(() => {
+});
+onDestroy(() => {
     slotIntervals.forEach((id) => clearInterval(id));
     cleanupGlobalListeners();
-  });
-
-  $effect(() => {
+});
+$effect(() => {
     if (!open && hasSpun) {
-      const t = setTimeout(() => {
-        hasSpun = false;
-        isSpinning = false;
-        handleOffset = HANDLE_MIN_OFFSET;
-        currentDisplayParts = Array(12).fill("").map((_, i) => (i < 9 ? "-----" : "------"));
-      }, 300);
-      return () => clearTimeout(t);
+        const t = setTimeout(() => {
+            hasSpun = false;
+            isSpinning = false;
+            handleOffset = HANDLE_MIN_OFFSET;
+            currentDisplayParts = Array(12).fill("").map((_, i) => (i < 9 ? "-----" : "------"));
+        }, 300);
+        return () => clearTimeout(t);
     }
-  });
+});
 </script>
 
 <Modal bind:open ariaLabel="Generate your Nostr key" zIndex={zIndex}>

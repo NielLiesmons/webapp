@@ -1,38 +1,19 @@
-<script lang="ts">
-  /**
-   * CommentActionsModal - Modal showing a comment preview with Comment and Zap actions.
-   */
-  import Modal from "$lib/components/common/Modal.svelte";
-  import QuotedMessage from "./QuotedMessage.svelte";
-  import { Reply, Zap } from "$lib/components/icons";
-
-  interface Props {
-    open?: boolean;
-    authorName?: string;
-    authorPubkey?: string | null;
-    contentPreview?: string;
-    onComment?: () => void;
-    onZap?: () => void;
-  }
-
-  let {
-    open = $bindable(false),
-    authorName = "Anonymous",
-    authorPubkey = null,
-    contentPreview = "",
-    onComment,
-    onZap,
-  }: Props = $props();
-
-  function chooseComment() {
+<script lang="js">
+/**
+ * CommentActionsModal - Modal showing a comment preview with Comment and Zap actions.
+ */
+import Modal from "$lib/components/common/Modal.svelte";
+import QuotedMessage from "./QuotedMessage.svelte";
+import { Reply, Zap } from "$lib/components/icons";
+let { open = $bindable(false), authorName = "Anonymous", authorPubkey = null, contentPreview = "", onComment, onZap, } = $props();
+function chooseComment() {
     open = false;
     onComment?.();
-  }
-
-  function chooseZap() {
+}
+function chooseZap() {
     open = false;
     onZap?.();
-  }
+}
 </script>
 
 <Modal bind:open ariaLabel="Comment actions" align="bottom" wide={true} noBackdrop={true} class="comment-actions-modal">

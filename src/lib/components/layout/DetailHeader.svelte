@@ -1,247 +1,184 @@
-<script lang="ts">
-	/**
-	 * DetailHeader - Contextual header for detail pages (app, stack, profile)
-	 *
-	 * Replaces the branded Zapstore header with:
-	 * - Menu button (opens navigation)
-	 * - Publisher profile pic, name, timestamp
-	 * - Catalog/community info on the right
-	 */
-
-	import { onMount } from 'svelte';
-	import { browser } from '$app/environment';
-	import { Menu, Cross } from '$lib/components/icons';
-	import { Search } from 'lucide-svelte';
-	import { cn } from '$lib/utils';
-	import { nip19 } from 'nostr-tools';
-	import { getCurrentPubkey, connect } from '$lib/stores/auth.svelte';
-	import { queryStoreOne, fetchProfile } from '$lib/nostr';
-	import { parseProfile } from '$lib/nostr/models';
-	import ProfilePic from '$lib/components/common/ProfilePic.svelte';
-	import ProfilePicStack from '$lib/components/common/ProfilePicStack.svelte';
-	import Timestamp from '$lib/components/common/Timestamp.svelte';
-	import {
-		zapstoreProfileStore,
-		ZAPSTORE_PUBKEY,
-		startProfileSearchBackground
-	} from '$lib/services/profile-search';
-	import SearchModal from '$lib/components/common/SearchModal.svelte';
-	import GetStartedModal from '$lib/components/modals/GetStartedModal.svelte';
-	import OnboardingBuildingModal from '$lib/components/modals/OnboardingBuildingModal.svelte';
-	import SpinKeyModal from '$lib/components/modals/SpinKeyModal.svelte';
-
-	interface CatalogProfile {
-		pictureUrl?: string;
-		name?: string;
-		pubkey?: string;
-	}
-
-	interface Props {
-		publisherPic?: string | null;
-		publisherName?: string | null;
-		publisherPubkey?: string | null;
-		publisherUrl?: string;
-		timestamp?: number | null;
-		catalogs?: CatalogProfile[];
-		catalogText?: string;
-		showPublisher?: boolean;
-		/** When set, header is hidden until user scrolls past this px (e.g. 164 for profile page). */
-		scrollThreshold?: number;
-		/** Bindable: when set to true from parent (e.g. from BottomBar "Get started to comment"), opens the Get Started onboarding modal. */
-		getStartedModalOpen?: boolean;
-	}
-
-	let {
-		publisherPic = null,
-		publisherName = null,
-		publisherPubkey = null,
-		publisherUrl = '#',
-		timestamp = null,
-		catalogs = [],
-		catalogText = 'In Zapstore',
-		showPublisher = true,
-		scrollThreshold,
-		getStartedModalOpen = $bindable(false)
-	}: Props = $props();
-
-	// Reactive Zapstore profile from store (populated by profile-search from EventStore/relays)
-	let zapstoreProfile = $state<{ picture: string; name: string } | null>(null);
-	$effect(() => {
-		const unsub = zapstoreProfileStore.subscribe((v) => (zapstoreProfile = v));
-		return unsub;
-	});
-	const isZapstoreCatalog = $derived(
-		catalogs.length > 0 &&
-			catalogs[0]?.pubkey &&
-			ZAPSTORE_PUBKEY &&
-			(catalogs[0].pubkey.toLowerCase() === ZAPSTORE_PUBKEY.toLowerCase() ||
-				(catalogs[0].name ?? '').toLowerCase() === 'zapstore')
-	);
-	const effectiveCatalogs = $derived(
-		isZapstoreCatalog && zapstoreProfile
-			? [{ ...catalogs[0], pictureUrl: zapstoreProfile.picture, name: zapstoreProfile.name }]
-			: catalogs
-	);
-
-	let scrolled = $state(false);
-	let scrollY = $state(0);
-	let menuOpen = $state(false);
-	let menuContainer = $state<HTMLElement | null>(null);
-	let menuContainerFloating = $state<HTMLElement | null>(null);
-	let menuButton = $state<HTMLElement | null>(null);
-	let catalogDropdownOpen = $state(false);
-	let catalogDropdownContainer = $state<HTMLElement | null>(null);
-	let searchOpen = $state(false);
-	let searchQuery = $state('');
-	let spinKeyModalOpen = $state(false);
-	let onboardingBuildingModalOpen = $state(false);
-	let onboardingProfileName = $state('');
-
-	// Categories and platforms for the search modal
-	const categories = [
-		'Productivity',
-		'Social',
-		'Entertainment',
-		'Utilities',
-		'Developer Tools',
-		'Games'
-	];
-	const platforms = ['Android', 'Mac', 'Linux', 'CLI', 'Web', 'iOS'];
-
-	// Reactive auth state
-	const pubkey = $derived(getCurrentPubkey());
-	const profileHref = $derived(pubkey ? '/profile/' + nip19.npubEncode(pubkey) : '#');
-	const isConnected = $derived(pubkey !== null);
-
-	// Current user profile (local-first: EventStore then background fetch) for menu avatar
-	let currentUserProfile = $state<{ picture: string; name: string } | null>(null);
-	$effect(() => {
-		const pk = getCurrentPubkey();
-		if (!pk) {
-			currentUserProfile = null;
-			return;
-		}
-		const ev = queryStoreOne({ kinds: [0], authors: [pk], limit: 1 });
-		if (ev?.content) {
-			try {
-				const p = parseProfile(ev);
-				currentUserProfile = {
-					picture: p.picture ?? '',
-					name: p.displayName ?? p.name ?? ''
-				};
-			} catch {
-				currentUserProfile = null;
-			}
-		} else {
-			currentUserProfile = null;
-		}
-		fetchProfile(pk).then((e) => {
-			if (e?.content) {
-				try {
-					const p = parseProfile(e);
-					currentUserProfile = {
-						picture: p.picture ?? '',
-						name: p.displayName ?? p.name ?? ''
-					};
-				} catch {
-					// keep existing
-				}
-			}
-		});
-	});
-
-	function openSearch() {
-		searchOpen = true;
-		menuOpen = false;
-	}
-
-	function handleClickOutside(event: MouseEvent) {
-		const target = event.target as HTMLElement;
-		const activeContainer =
-			scrollThreshold != null && !headerVisible && menuContainerFloating
-				? menuContainerFloating
-				: menuContainer;
-		if (menuOpen && activeContainer && !activeContainer.contains(target)) {
-			menuOpen = false;
-		}
-		if (
-			catalogDropdownOpen &&
-			catalogDropdownContainer &&
-			!catalogDropdownContainer.contains(target)
-		) {
-			catalogDropdownOpen = false;
-		}
-	}
-
-	const headerVisible = $derived(scrollThreshold == null ? true : scrollY > scrollThreshold);
-
-	onMount(() => {
-		if (browser) startProfileSearchBackground();
-		const handleScroll = () => {
-			scrollY = window.scrollY;
-			scrolled = window.scrollY > 10;
-		};
-
-		window.addEventListener('scroll', handleScroll, { passive: true });
-		document.addEventListener('click', handleClickOutside);
-
-		return () => {
-			window.removeEventListener('scroll', handleScroll);
-			document.removeEventListener('click', handleClickOutside);
-		};
-	});
-
-	function toggleMenu(e?: Event) {
-		if (e) e.stopPropagation();
-		menuOpen = !menuOpen;
-	}
-
-	function closeMenu() {
-		menuOpen = false;
-	}
-
-	function openGetStartedModal() {
-		menuOpen = false;
-		getStartedModalOpen = true;
-	}
-
-	function handleGetStartedStart(event: { profileName: string }) {
-		onboardingProfileName = event.profileName;
-		spinKeyModalOpen = true;
-		setTimeout(() => {
-			getStartedModalOpen = false;
-		}, 50);
-	}
-
-	function handleGetStartedConnected() {
-		getStartedModalOpen = false;
-	}
-
-	function handleSpinComplete(event: {
-		nsec: string;
-		secretKeyHex: string;
-		pubkey: string;
-		profileName: string;
-	}) {
-		spinKeyModalOpen = false;
-		// Defer so SpinKeyModal can close and unmount before showing the next modal
-		setTimeout(() => {
-			onboardingBuildingModalOpen = true;
-		}, 150);
-	}
-
-	function handleUseExistingKey() {
-		spinKeyModalOpen = false;
-		getStartedModalOpen = true;
-	}
-
-	async function handleSignIn() {
-		try {
-			await connect();
-		} catch (err) {
-			console.error('Sign in failed:', err);
-		}
-	}
+<script lang="js">
+/**
+ * DetailHeader - Contextual header for detail pages (app, stack, profile)
+ *
+ * Replaces the branded Zapstore header with:
+ * - Menu button (opens navigation)
+ * - Publisher profile pic, name, timestamp
+ * - Catalog/community info on the right
+ */
+import { onMount } from 'svelte';
+import { browser } from '$app/environment';
+import { Menu, Cross } from '$lib/components/icons';
+import { Search } from 'lucide-svelte';
+import { cn } from '$lib/utils';
+import { nip19 } from 'nostr-tools';
+import { getCurrentPubkey, connect } from '$lib/stores/auth.svelte.js';
+import { queryStoreOne, fetchProfile } from '$lib/nostr';
+import { parseProfile } from '$lib/nostr/models';
+import ProfilePic from '$lib/components/common/ProfilePic.svelte';
+import ProfilePicStack from '$lib/components/common/ProfilePicStack.svelte';
+import Timestamp from '$lib/components/common/Timestamp.svelte';
+import { zapstoreProfileStore, ZAPSTORE_PUBKEY, startProfileSearchBackground } from '$lib/services/profile-search';
+import SearchModal from '$lib/components/common/SearchModal.svelte';
+import GetStartedModal from '$lib/components/modals/GetStartedModal.svelte';
+import OnboardingBuildingModal from '$lib/components/modals/OnboardingBuildingModal.svelte';
+import SpinKeyModal from '$lib/components/modals/SpinKeyModal.svelte';
+let { publisherPic = null, publisherName = null, publisherPubkey = null, publisherUrl = '#', timestamp = null, catalogs = [], catalogText = 'In Zapstore', showPublisher = true, scrollThreshold, getStartedModalOpen = $bindable(false) } = $props();
+// Reactive Zapstore profile from store (populated by profile-search from EventStore/relays)
+let zapstoreProfile = $state(null);
+$effect(() => {
+    const unsub = zapstoreProfileStore.subscribe((v) => (zapstoreProfile = v));
+    return unsub;
+});
+const isZapstoreCatalog = $derived(catalogs.length > 0 &&
+    catalogs[0]?.pubkey &&
+    ZAPSTORE_PUBKEY &&
+    (catalogs[0].pubkey.toLowerCase() === ZAPSTORE_PUBKEY.toLowerCase() ||
+        (catalogs[0].name ?? '').toLowerCase() === 'zapstore'));
+const effectiveCatalogs = $derived(isZapstoreCatalog && zapstoreProfile
+    ? [{ ...catalogs[0], pictureUrl: zapstoreProfile.picture, name: zapstoreProfile.name }]
+    : catalogs);
+let scrolled = $state(false);
+let scrollY = $state(0);
+let menuOpen = $state(false);
+let menuContainer = $state(null);
+let menuContainerFloating = $state(null);
+let menuButton = $state(null);
+let catalogDropdownOpen = $state(false);
+let catalogDropdownContainer = $state(null);
+let searchOpen = $state(false);
+let searchQuery = $state('');
+let spinKeyModalOpen = $state(false);
+let onboardingBuildingModalOpen = $state(false);
+let onboardingProfileName = $state('');
+// Categories and platforms for the search modal
+const categories = [
+    'Productivity',
+    'Social',
+    'Entertainment',
+    'Utilities',
+    'Developer Tools',
+    'Games'
+];
+const platforms = ['Android', 'Mac', 'Linux', 'CLI', 'Web', 'iOS'];
+// Reactive auth state
+const pubkey = $derived(getCurrentPubkey());
+const profileHref = $derived(pubkey ? '/profile/' + nip19.npubEncode(pubkey) : '#');
+const isConnected = $derived(pubkey !== null);
+// Current user profile (local-first: EventStore then background fetch) for menu avatar
+let currentUserProfile = $state(null);
+$effect(() => {
+    const pk = getCurrentPubkey();
+    if (!pk) {
+        currentUserProfile = null;
+        return;
+    }
+    const ev = queryStoreOne({ kinds: [0], authors: [pk], limit: 1 });
+    if (ev?.content) {
+        try {
+            const p = parseProfile(ev);
+            currentUserProfile = {
+                picture: p.picture ?? '',
+                name: p.displayName ?? p.name ?? ''
+            };
+        }
+        catch {
+            currentUserProfile = null;
+        }
+    }
+    else {
+        currentUserProfile = null;
+    }
+    fetchProfile(pk).then((e) => {
+        if (e?.content) {
+            try {
+                const p = parseProfile(e);
+                currentUserProfile = {
+                    picture: p.picture ?? '',
+                    name: p.displayName ?? p.name ?? ''
+                };
+            }
+            catch {
+                // keep existing
+            }
+        }
+    });
+});
+function openSearch() {
+    searchOpen = true;
+    menuOpen = false;
+}
+function handleClickOutside(event) {
+    const target = event.target;
+    const activeContainer = scrollThreshold != null && !headerVisible && menuContainerFloating
+        ? menuContainerFloating
+        : menuContainer;
+    if (menuOpen && activeContainer && !activeContainer.contains(target)) {
+        menuOpen = false;
+    }
+    if (catalogDropdownOpen &&
+        catalogDropdownContainer &&
+        !catalogDropdownContainer.contains(target)) {
+        catalogDropdownOpen = false;
+    }
+}
+const headerVisible = $derived(scrollThreshold == null ? true : scrollY > scrollThreshold);
+onMount(() => {
+    if (browser)
+        startProfileSearchBackground();
+    const handleScroll = () => {
+        scrollY = window.scrollY;
+        scrolled = window.scrollY > 10;
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    document.addEventListener('click', handleClickOutside);
+    return () => {
+        window.removeEventListener('scroll', handleScroll);
+        document.removeEventListener('click', handleClickOutside);
+    };
+});
+function toggleMenu(e) {
+    if (e)
+        e.stopPropagation();
+    menuOpen = !menuOpen;
+}
+function closeMenu() {
+    menuOpen = false;
+}
+function openGetStartedModal() {
+    menuOpen = false;
+    getStartedModalOpen = true;
+}
+function handleGetStartedStart(event) {
+    onboardingProfileName = event.profileName;
+    spinKeyModalOpen = true;
+    setTimeout(() => {
+        getStartedModalOpen = false;
+    }, 50);
+}
+function handleGetStartedConnected() {
+    getStartedModalOpen = false;
+}
+function handleSpinComplete(event) {
+    spinKeyModalOpen = false;
+    // Defer so SpinKeyModal can close and unmount before showing the next modal
+    setTimeout(() => {
+        onboardingBuildingModalOpen = true;
+    }, 150);
+}
+function handleUseExistingKey() {
+    spinKeyModalOpen = false;
+    getStartedModalOpen = true;
+}
+async function handleSignIn() {
+    try {
+        await connect();
+    }
+    catch (err) {
+        console.error('Sign in failed:', err);
+    }
+}
 </script>
 
 <header

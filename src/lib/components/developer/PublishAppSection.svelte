@@ -1,64 +1,58 @@
-<script lang="ts">
-	import { onMount } from 'svelte';
-	import { assets } from '$app/paths';
-	import { ChevronRight } from '$lib/components/icons';
-
-	let sectionElement: HTMLElement | undefined;
-	let scrollProgress = 0;
-	let chainLeftOffset = 0;
-	let chainRightOffset = 0;
-	let textOpacity = 0;
-	let textScale = 0.8;
-
-	function handleScroll() {
-		if (!sectionElement) return;
-
-		const rect = sectionElement.getBoundingClientRect();
-		const windowHeight = window.innerHeight;
-		const sectionTop = rect.top;
-		const sectionHeight = rect.height;
-
-		// Calculate scroll progress (0 to 1) as section enters viewport
-		// Start animation when section top reaches 80% of viewport
-		// Complete animation when section top reaches 20% of viewport
-		const startPoint = windowHeight * 0.8;
-		const endPoint = windowHeight * 0.2;
-		const scrollRange = startPoint - endPoint;
-		const currentScroll = startPoint - sectionTop;
-
-		if (currentScroll < 0) {
-			// Before animation starts
-			scrollProgress = 0;
-		} else if (currentScroll > scrollRange) {
-			// After animation completes
-			scrollProgress = 1;
-		} else {
-			// During animation
-			scrollProgress = currentScroll / scrollRange;
-		}
-
-		// Clamp between 0 and 1
-		scrollProgress = Math.max(0, Math.min(1, scrollProgress));
-
-		// Chains: on mobile keep anchors near center so chains stay visible (small offset = overlap in middle); desktop original
-		const isMobile = window.innerWidth < 640;
-		const maxOffset = isMobile ? window.innerWidth * 0.06 : window.innerWidth * 0.08;
-		const initialOverlap = isMobile ? -window.innerWidth * 0.04 : -window.innerWidth * 0.05;
-		chainLeftOffset = initialOverlap - scrollProgress * maxOffset;
-		chainRightOffset = -initialOverlap + scrollProgress * maxOffset;
-
-		// Calculate text animation (scale and opacity)
-		textOpacity = scrollProgress;
-		textScale = 0.8 + scrollProgress * 0.2; // Scale from 0.8 to 1.0
-	}
-
-	onMount(() => {
-		window.addEventListener('scroll', handleScroll, { passive: true });
-		handleScroll();
-		return () => {
-			window.removeEventListener('scroll', handleScroll);
-		};
-	});
+<script lang="js">
+import { onMount } from 'svelte';
+import { assets } from '$app/paths';
+import { ChevronRight } from '$lib/components/icons';
+let sectionElement;
+let scrollProgress = 0;
+let chainLeftOffset = 0;
+let chainRightOffset = 0;
+let textOpacity = 0;
+let textScale = 0.8;
+function handleScroll() {
+    if (!sectionElement)
+        return;
+    const rect = sectionElement.getBoundingClientRect();
+    const windowHeight = window.innerHeight;
+    const sectionTop = rect.top;
+    const sectionHeight = rect.height;
+    // Calculate scroll progress (0 to 1) as section enters viewport
+    // Start animation when section top reaches 80% of viewport
+    // Complete animation when section top reaches 20% of viewport
+    const startPoint = windowHeight * 0.8;
+    const endPoint = windowHeight * 0.2;
+    const scrollRange = startPoint - endPoint;
+    const currentScroll = startPoint - sectionTop;
+    if (currentScroll < 0) {
+        // Before animation starts
+        scrollProgress = 0;
+    }
+    else if (currentScroll > scrollRange) {
+        // After animation completes
+        scrollProgress = 1;
+    }
+    else {
+        // During animation
+        scrollProgress = currentScroll / scrollRange;
+    }
+    // Clamp between 0 and 1
+    scrollProgress = Math.max(0, Math.min(1, scrollProgress));
+    // Chains: on mobile keep anchors near center so chains stay visible (small offset = overlap in middle); desktop original
+    const isMobile = window.innerWidth < 640;
+    const maxOffset = isMobile ? window.innerWidth * 0.06 : window.innerWidth * 0.08;
+    const initialOverlap = isMobile ? -window.innerWidth * 0.04 : -window.innerWidth * 0.05;
+    chainLeftOffset = initialOverlap - scrollProgress * maxOffset;
+    chainRightOffset = -initialOverlap + scrollProgress * maxOffset;
+    // Calculate text animation (scale and opacity)
+    textOpacity = scrollProgress;
+    textScale = 0.8 + scrollProgress * 0.2; // Scale from 0.8 to 1.0
+}
+onMount(() => {
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+    return () => {
+        window.removeEventListener('scroll', handleScroll);
+    };
+});
 </script>
 
 <section

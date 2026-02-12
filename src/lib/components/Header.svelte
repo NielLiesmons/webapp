@@ -1,12 +1,11 @@
-<script lang="ts">
-  let searchQuery = $state('');
-  
-  function handleSearch(e: Event) {
+<script lang="js">
+let searchQuery = $state('');
+function handleSearch(e) {
     e.preventDefault();
     if (searchQuery.trim()) {
-      window.location.href = `/search?q=${encodeURIComponent(searchQuery)}`;
+        window.location.href = `/search?q=${encodeURIComponent(searchQuery)}`;
     }
-  }
+}
 </script>
 
 <header class="header">

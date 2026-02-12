@@ -1,23 +1,8 @@
-<script lang="ts">
-  /**
-   * InputButton - Fake input that opens a modal/action
-   */
-
-  interface Props {
-    placeholder?: string;
-    className?: string;
-    onclick?: () => void;
-    icon?: import("svelte").Snippet;
-    trailing?: import("svelte").Snippet;
-  }
-
-  let {
-    placeholder = "",
-    className = "",
-    onclick,
-    icon,
-    trailing,
-  }: Props = $props();
+<script lang="js">
+/**
+ * InputButton - Fake input that opens a modal/action
+ */
+let { placeholder = "", className = "", onclick, icon, trailing, } = $props();
 </script>
 
 <button type="button" class="input-button {className}" onclick={onclick}>

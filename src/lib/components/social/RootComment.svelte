@@ -1,376 +1,260 @@
-<script lang="ts">
-  /**
-   * RootComment - Wraps a MessageBubble with reply indicator.
-   * Thread modal supports Zap (root comment author) and Comment (reply) when logged in.
-   */
-  import MessageBubble from "./MessageBubble.svelte";
-  import ThreadComment from "./ThreadComment.svelte";
-  import ZapBubble from "./ZapBubble.svelte";
-  import ThreadZap from "./ThreadZap.svelte";
-  import QuotedMessage from "./QuotedMessage.svelte";
-  import CommentActionsModal from "./CommentActionsModal.svelte";
-  import ShortTextRenderer from "$lib/components/common/ShortTextRenderer.svelte";
-  import ProfilePicStack from "$lib/components/common/ProfilePicStack.svelte";
-  import Modal from "$lib/components/common/Modal.svelte";
-  import InputButton from "$lib/components/common/InputButton.svelte";
-  import ShortTextInput from "$lib/components/common/ShortTextInput.svelte";
-  import ZapSliderModal from "$lib/components/modals/ZapSliderModal.svelte";
-  import { Zap, Reply, Options } from "$lib/components/icons";
-  import { getIsSignedIn } from "$lib/stores/auth.svelte";
-
-  interface ReplyComment {
-    id: string;
-    pubkey: string;
-    parentId?: string | null;
-    avatarUrl?: string | null;
-    displayName?: string;
-    createdAt?: number;
-    profileUrl?: string;
-    profileLoading?: boolean;
-    content?: string;
-    contentHtml?: string;
-    emojiTags?: { shortcode: string; url: string }[];
-  }
-
-  /** Zap in a thread (zap on zap); same shape as ReplyComment for modal/zap target. */
-  interface ThreadZapItem {
-    id: string;
-    senderPubkey?: string;
-    pubkey?: string;
-    displayName?: string;
-    avatarUrl?: string | null;
-    profileUrl?: string;
-    amountSats?: number;
-    comment?: string;
-    timestamp?: number;
-    createdAt?: number;
-    emojiTags?: { shortcode: string; url: string }[];
-  }
-
-  interface Props {
-    pictureUrl?: string | null;
-    name?: string;
-    pubkey?: string | null;
-    timestamp?: number | string | Date | null;
-    profileUrl?: string;
-    loading?: boolean;
-    /** Show publishing spinner next to bubble */
-    pending?: boolean;
-    replies?: ReplyComment[];
-    /** Full thread (root + all descendants) chronological; when set, feed uses this and shows QuotedMessage for replies */
-    threadComments?: ReplyComment[];
-    /** Zaps on this zap (and deeper); shown in thread modal with comments. */
-    threadZaps?: ThreadZapItem[];
-    authorPubkey?: string | null;
-    className?: string;
-    /** Plain text content (rendered via ShortTextRenderer) */
-    content?: string;
-    /** Custom emoji for ShortTextRenderer */
-    emojiTags?: { shortcode: string; url: string }[];
-    /** Resolve pubkey to display name for @mentions */
-    resolveMentionLabel?: (pubkey: string) => string | undefined;
-    appIconUrl?: string | null;
-    appName?: string;
-    appIdentifier?: string | null;
-    version?: string;
-    children?: import("svelte").Snippet;
-    /** Root comment event id (for reply parent and zap e-tag) */
-    id?: string | null;
-    /** When true, root is a zap: show ZapBubble and pass rootPubkey on reply so zapper gets p-tagged */
-    isZapRoot?: boolean;
-    /** Zap amount (sats) when isZapRoot */
-    zapAmount?: number;
-    searchProfiles?: (query: string) => Promise<{ pubkey: string; name?: string; displayName?: string; picture?: string }[]>;
-    searchEmojis?: (query: string) => Promise<{ shortcode: string; url: string; source: string }[]>;
-    onReplySubmit?: (event: { text: string; emojiTags: { shortcode: string; url: string }[]; mentions: string[]; parentId: string; replyToPubkey?: string; rootPubkey?: string; parentKind?: number }) => void;
-    onZapReceived?: (event: { zapReceipt: unknown }) => void;
-    /** When guest taps "Get started to comment" in thread bar (opens onboarding). */
-    onGetStarted?: () => void;
-  }
-
-  let {
-    pictureUrl = null,
-    name = "",
-    pubkey = null,
-    timestamp = null,
-    profileUrl = "",
-    loading = false,
-    pending = false,
-    replies = [],
-    threadComments = [],
-    threadZaps = [],
-    authorPubkey = null,
-    className = "",
-    content = "",
-    emojiTags = [],
-    resolveMentionLabel,
-    appIconUrl = null,
-    appName = "",
-    appIdentifier = null,
-    version = "",
-    children,
-    id = null,
-    isZapRoot = false,
-    zapAmount = 0,
-    searchProfiles = async () => [],
-    searchEmojis = async () => [],
-    onReplySubmit,
-    onZapReceived,
-    onGetStarted,
-  }: Props = $props();
-
-  let modalOpen = $state(false);
-  let zapModalOpen = $state(false);
-  let commentExpanded = $state(false);
-  /** When set, we're replying to this comment (show QuotedMessage above input) */
-  let replyingToComment = $state<ReplyComment | null>(null);
-  /** When set, Zap modal targets this comment instead of the root */
-  let zapTargetOverride = $state<{ name?: string; pubkey: string; id?: string; pictureUrl?: string; aTag?: string } | null>(null);
-  let replyInput = $state<{ clear?: () => void; focus?: () => void } | null>(null);
-  let submitting = $state(false);
-  /** Which item the actions modal is for: 'root', a comment reply, or a zap (zap on zap) */
-  let actionsModalTarget = $state<"root" | ReplyComment | ThreadZapItem | null>(null);
-  let actionsModalOpen = $state(false);
-
-  /** True when any modal is open on top of the thread (Zap or Comment/Zap options) – drives overlay + scale animation */
-  const childModalOpen = $derived(zapModalOpen || actionsModalOpen);
-
-  // Unique people in the thread: comment repliers + zappers (by pubkey), same shape as ReplyComment for profile stack. App author first.
-  const uniqueRepliers = $derived.by(() => {
+<script lang="js">
+/**
+ * RootComment - Wraps a MessageBubble with reply indicator.
+ * Thread modal supports Zap (root comment author) and Comment (reply) when logged in.
+ */
+import MessageBubble from "./MessageBubble.svelte";
+import ThreadComment from "./ThreadComment.svelte";
+import ZapBubble from "./ZapBubble.svelte";
+import ThreadZap from "./ThreadZap.svelte";
+import QuotedMessage from "./QuotedMessage.svelte";
+import CommentActionsModal from "./CommentActionsModal.svelte";
+import ShortTextRenderer from "$lib/components/common/ShortTextRenderer.svelte";
+import ProfilePicStack from "$lib/components/common/ProfilePicStack.svelte";
+import Modal from "$lib/components/common/Modal.svelte";
+import InputButton from "$lib/components/common/InputButton.svelte";
+import ShortTextInput from "$lib/components/common/ShortTextInput.svelte";
+import ZapSliderModal from "$lib/components/modals/ZapSliderModal.svelte";
+import { Zap, Reply, Options } from "$lib/components/icons";
+import { getIsSignedIn } from "$lib/stores/auth.svelte.js";
+let { pictureUrl = null, name = "", pubkey = null, timestamp = null, profileUrl = "", loading = false, pending = false, replies = [], threadComments = [], threadZaps = [], authorPubkey = null, className = "", content = "", emojiTags = [], resolveMentionLabel, appIconUrl = null, appName = "", appIdentifier = null, version = "", children, id = null, isZapRoot = false, zapAmount = 0, searchProfiles = async () => [], searchEmojis = async () => [], onReplySubmit, onZapReceived, onGetStarted, } = $props();
+let modalOpen = $state(false);
+let zapModalOpen = $state(false);
+let commentExpanded = $state(false);
+/** When set, we're replying to this comment (show QuotedMessage above input) */
+let replyingToComment = $state(null);
+/** When set, Zap modal targets this comment instead of the root */
+let zapTargetOverride = $state(null);
+let replyInput = $state(null);
+let submitting = $state(false);
+/** Which item the actions modal is for: 'root', a comment reply, or a zap (zap on zap) */
+let actionsModalTarget = $state(null);
+let actionsModalOpen = $state(false);
+/** True when any modal is open on top of the thread (Zap or Comment/Zap options) – drives overlay + scale animation */
+const childModalOpen = $derived(zapModalOpen || actionsModalOpen);
+// Unique people in the thread: comment repliers + zappers (by pubkey), same shape as ReplyComment for profile stack. App author first.
+const uniqueRepliers = $derived.by(() => {
     const commentSource = isZapRoot ? threadComments : replies;
-    const seen = new Set<string>();
-    const list: { pubkey: string; displayName?: string; avatarUrl?: string | null }[] = [];
+    const seen = new Set();
+    const list = [];
     for (const r of commentSource) {
-      if (seen.has(r.pubkey)) continue;
-      seen.add(r.pubkey);
-      list.push({ pubkey: r.pubkey, displayName: r.displayName, avatarUrl: r.avatarUrl });
+        if (seen.has(r.pubkey))
+            continue;
+        seen.add(r.pubkey);
+        list.push({ pubkey: r.pubkey, displayName: r.displayName, avatarUrl: r.avatarUrl });
     }
     for (const z of threadZaps ?? []) {
-      const pk = z.senderPubkey ?? z.pubkey ?? "";
-      if (!pk || seen.has(pk)) continue;
-      seen.add(pk);
-      list.push({ pubkey: pk, displayName: z.displayName, avatarUrl: z.avatarUrl ?? null });
+        const pk = z.senderPubkey ?? z.pubkey ?? "";
+        if (!pk || seen.has(pk))
+            continue;
+        seen.add(pk);
+        list.push({ pubkey: pk, displayName: z.displayName, avatarUrl: z.avatarUrl ?? null });
     }
     if (authorPubkey) {
-      list.sort((a, b) => {
-        if (a.pubkey === authorPubkey) return -1;
-        if (b.pubkey === authorPubkey) return 1;
-        return 0;
-      });
+        list.sort((a, b) => {
+            if (a.pubkey === authorPubkey)
+                return -1;
+            if (b.pubkey === authorPubkey)
+                return 1;
+            return 0;
+        });
     }
     return list;
-  });
-
-  const hasReplies = $derived(uniqueRepliers.length > 0);
-  const featuredReplier = $derived(uniqueRepliers[0]);
-  const otherRepliersCount = $derived(uniqueRepliers.length - 1);
-  const displayedRepliers = $derived(uniqueRepliers.slice(0, 3));
-  /** Profile stack text: "X & N others" or just "X", no zap count. */
-  const replyIndicatorText = $derived.by(() => {
-    if (uniqueRepliers.length === 0) return "";
+});
+const hasReplies = $derived(uniqueRepliers.length > 0);
+const featuredReplier = $derived(uniqueRepliers[0]);
+const otherRepliersCount = $derived(uniqueRepliers.length - 1);
+const displayedRepliers = $derived(uniqueRepliers.slice(0, 3));
+/** Profile stack text: "X & N others" or just "X", no zap count. */
+const replyIndicatorText = $derived.by(() => {
+    if (uniqueRepliers.length === 0)
+        return "";
     return otherRepliersCount > 0
-      ? `${featuredReplier?.displayName || "Someone"} & ${otherRepliersCount} ${otherRepliersCount === 1 ? "other" : "others"}`
-      : (featuredReplier?.displayName || "Someone");
-  });
-
-  const sortedReplies = $derived(
-    [...replies].sort((a, b) => {
-      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return timeA - timeB;
-    })
-  );
-
-  /** Chronological feed for thread modal: comments + zaps on zap, sorted by time. */
-  type ThreadFeedItem = { type: 'comment'; data: ReplyComment } | { type: 'zap'; data: ThreadZapItem };
-  const feedItems = $derived.by((): ThreadFeedItem[] => {
-    const commentItems: ThreadFeedItem[] = (threadComments.length > 0
-      ? threadComments.filter((c) => c.id !== id)
-      : sortedReplies
-    ).map((c) => ({ type: 'comment' as const, data: c }));
-    const zapItems: ThreadFeedItem[] = (threadZaps ?? []).map((z) => ({
-      type: 'zap' as const,
-      data: {
-        ...z,
-        pubkey: z.senderPubkey ?? z.pubkey,
-        createdAt: z.timestamp ?? z.createdAt,
-      },
+        ? `${featuredReplier?.displayName || "Someone"} & ${otherRepliersCount} ${otherRepliersCount === 1 ? "other" : "others"}`
+        : (featuredReplier?.displayName || "Someone");
+});
+const sortedReplies = $derived([...replies].sort((a, b) => {
+    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return timeA - timeB;
+}));
+const feedItems = $derived.by(() => {
+    const commentItems = (threadComments.length > 0
+        ? threadComments.filter((c) => c.id !== id)
+        : sortedReplies).map((c) => ({ type: 'comment', data: c }));
+    const zapItems = (threadZaps ?? []).map((z) => ({
+        type: 'zap',
+        data: {
+            ...z,
+            pubkey: z.senderPubkey ?? z.pubkey,
+            createdAt: z.timestamp ?? z.createdAt,
+        },
     }));
-    return [...commentItems, ...zapItems].sort(
-      (a, b) => (a.data.createdAt ?? 0) - (b.data.createdAt ?? 0)
-    );
-  });
-
-  const threadById = $derived.by(() => {
-    const map = new Map<string, ReplyComment>();
+    return [...commentItems, ...zapItems].sort((a, b) => (a.data.createdAt ?? 0) - (b.data.createdAt ?? 0));
+});
+const threadById = $derived.by(() => {
+    const map = new Map();
     for (const c of threadComments) {
-      map.set(c.id, c);
+        map.set(c.id, c);
     }
     return map;
-  });
-
-  function getContentPreview(comment: ReplyComment): string {
-    if (comment.content && comment.content.trim()) return comment.content;
+});
+function getContentPreview(comment) {
+    if (comment.content && comment.content.trim())
+        return comment.content;
     if (comment.contentHtml) {
-      return comment.contentHtml.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+        return comment.contentHtml.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
     }
     return "";
-  }
-
-  /** App a-tag so every zap from this page has it on the request → receipt has it → we find by #a only (no #p). */
-  const appATag = $derived(
-    authorPubkey && appIdentifier ? `32267:${authorPubkey}:${appIdentifier}` : undefined
-  );
-  /** Zap target: e-tag = event we're zapping, p-tag = that event's author; aTag = app so receipt is discoverable by #a. */
-  const rootZapTarget = $derived(
-    pubkey
-      ? {
-          name: name || undefined,
-          pubkey,
-          id: id ?? undefined,
-          pictureUrl: pictureUrl ?? undefined,
-          aTag: appATag,
-        }
-      : null
-  );
-  /** Active zap target (override when Zap chosen from a reply's menu) */
-  const zapTarget = $derived(zapTargetOverride ?? rootZapTarget);
-
-  /** Show Zap + Comment (or "Get started to comment" for guests) in thread modal when we have handlers and a root id. */
-  const showThreadActions = $derived(
-    (onReplySubmit != null || onZapReceived != null || onGetStarted != null) && (id != null || pubkey != null)
-  );
-
-  function openActionsModal(target: "root" | ReplyComment | ThreadZapItem) {
+}
+/** App a-tag so every zap from this page has it on the request → receipt has it → we find by #a only (no #p). */
+const appATag = $derived(authorPubkey && appIdentifier ? `32267:${authorPubkey}:${appIdentifier}` : undefined);
+/** Zap target: e-tag = event we're zapping, p-tag = that event's author; aTag = app so receipt is discoverable by #a. */
+const rootZapTarget = $derived(pubkey
+    ? {
+        name: name || undefined,
+        pubkey,
+        id: id ?? undefined,
+        pictureUrl: pictureUrl ?? undefined,
+        aTag: appATag,
+    }
+    : null);
+/** Active zap target (override when Zap chosen from a reply's menu) */
+const zapTarget = $derived(zapTargetOverride ?? rootZapTarget);
+/** Show Zap + Comment (or "Get started to comment" for guests) in thread modal when we have handlers and a root id. */
+const showThreadActions = $derived((onReplySubmit != null || onZapReceived != null || onGetStarted != null) && (id != null || pubkey != null));
+function openActionsModal(target) {
     actionsModalTarget = target;
     actionsModalOpen = true;
-  }
-
-  function onBubbleClick(e: MouseEvent, target: "root" | ReplyComment | ThreadZapItem) {
-    if (!showThreadActions) return;
-    const t = e.target as Node;
-    if (t instanceof Element && t.closest("a, button, input, [contenteditable='true']")) return;
+}
+function onBubbleClick(e, target) {
+    if (!showThreadActions)
+        return;
+    const t = e.target;
+    if (t instanceof Element && t.closest("a, button, input, [contenteditable='true']"))
+        return;
     e.preventDefault();
     e.stopPropagation();
     openActionsModal(target);
-  }
-
-  function actionsModalOnComment() {
-    if (actionsModalTarget === "root") handleReply();
-    else if (actionsModalTarget && "parentId" in actionsModalTarget) openReplyToComment(actionsModalTarget as ReplyComment);
-    else if (actionsModalTarget && "id" in actionsModalTarget) openReplyToZap(actionsModalTarget as ThreadZapItem);
-  }
-
-  function actionsModalOnZap() {
-    if (actionsModalTarget === "root") handleZap();
-    else if (actionsModalTarget) handleZapComment(actionsModalTarget as ReplyComment | ThreadZapItem);
-  }
-
-  function openReplyToZap(zap: ThreadZapItem) {
+}
+function actionsModalOnComment() {
+    if (actionsModalTarget === "root")
+        handleReply();
+    else if (actionsModalTarget && "parentId" in actionsModalTarget)
+        openReplyToComment(actionsModalTarget);
+    else if (actionsModalTarget && "id" in actionsModalTarget)
+        openReplyToZap(actionsModalTarget);
+}
+function actionsModalOnZap() {
+    if (actionsModalTarget === "root")
+        handleZap();
+    else if (actionsModalTarget)
+        handleZapComment(actionsModalTarget);
+}
+function openReplyToZap(zap) {
     replyingToComment = {
-      id: zap.id,
-      pubkey: zap.senderPubkey ?? zap.pubkey ?? "",
-      displayName: zap.displayName,
-      avatarUrl: zap.avatarUrl ?? null,
-      content: zap.comment,
-      createdAt: zap.timestamp ?? zap.createdAt,
+        id: zap.id,
+        pubkey: zap.senderPubkey ?? zap.pubkey ?? "",
+        displayName: zap.displayName,
+        avatarUrl: zap.avatarUrl ?? null,
+        content: zap.comment,
+        createdAt: zap.timestamp ?? zap.createdAt,
     };
     commentExpanded = true;
-  }
-
-  function openThread() {
+}
+function openThread() {
     modalOpen = true;
-  }
-
-  function handleZap() {
+}
+function handleZap() {
     zapModalOpen = true;
-  }
-
-  function handleReply() {
+}
+function handleReply() {
     replyingToComment = null;
     commentExpanded = true;
-  }
-
-  function openReplyToComment(comment: ReplyComment) {
+}
+function openReplyToComment(comment) {
     replyingToComment = comment;
     commentExpanded = true;
-  }
-
-  function closeReply() {
+}
+function closeReply() {
     commentExpanded = false;
     replyingToComment = null;
-  }
-
-  /** Zap target: e-tag = comment or zap receipt id; p-tag = Lightning recipient (zapper when zapping a zap, comment author when zapping a comment). No a-tag so wallet sees a standard profile/event zap (p+e only). */
-  function handleZapComment(commentOrZap: ReplyComment | ThreadZapItem) {
+}
+/** Zap target: e-tag = comment or zap receipt id; p-tag = Lightning recipient (zapper when zapping a zap, comment author when zapping a comment). No a-tag so wallet sees a standard profile/event zap (p+e only). */
+function handleZapComment(commentOrZap) {
     const isZap = "senderPubkey" in commentOrZap;
     const recipientPubkey = isZap
-      ? (commentOrZap.senderPubkey ?? "")
-      : (commentOrZap.pubkey ?? "");
-    if (!recipientPubkey) return;
+        ? (commentOrZap.senderPubkey ?? "")
+        : (commentOrZap.pubkey ?? "");
+    if (!recipientPubkey)
+        return;
     zapTargetOverride = {
-      name: commentOrZap.displayName || undefined,
-      pubkey: recipientPubkey,
-      id: commentOrZap.id,
-      pictureUrl: commentOrZap.avatarUrl ?? undefined,
-      aTag: undefined,
+        name: commentOrZap.displayName || undefined,
+        pubkey: recipientPubkey,
+        id: commentOrZap.id,
+        pictureUrl: commentOrZap.avatarUrl ?? undefined,
+        aTag: undefined,
     };
     zapModalOpen = true;
-  }
-
-  function handleZapClose(event: { success: boolean }) {
+}
+function handleZapClose(event) {
     zapModalOpen = false;
     zapTargetOverride = null;
-    if (event.success) onZapReceived?.({ zapReceipt: {} });
-  }
-
-  async function handleReplySubmit(event: {
-    text: string;
-    emojiTags: { shortcode: string; url: string }[];
-    mentions: string[];
-  }) {
-    if (submitting || !id) return;
+    if (event.success)
+        onZapReceived?.({ zapReceipt: {} });
+}
+async function handleReplySubmit(event) {
+    if (submitting || !id)
+        return;
     const parentId = replyingToComment ? replyingToComment.id : id;
     submitting = true;
     try {
-      onReplySubmit?.({
-        ...event,
-        parentId,
-        ...(replyingToComment?.pubkey ? { replyToPubkey: replyingToComment.pubkey } : {}),
-        ...(isZapRoot && (replyingToComment?.pubkey ?? pubkey) ? { rootPubkey: replyingToComment?.pubkey ?? pubkey ?? undefined, parentKind: 9735 } : {}),
-      });
-      replyInput?.clear?.();
-      closeReply();
-    } catch (err) {
-      console.error("Failed to submit reply:", err);
-    } finally {
-      submitting = false;
+        onReplySubmit?.({
+            ...event,
+            parentId,
+            ...(replyingToComment?.pubkey ? { replyToPubkey: replyingToComment.pubkey } : {}),
+            ...(isZapRoot && (replyingToComment?.pubkey ?? pubkey) ? { rootPubkey: replyingToComment?.pubkey ?? pubkey ?? undefined, parentKind: 9735 } : {}),
+        });
+        replyInput?.clear?.();
+        closeReply();
     }
-  }
-
-  function handleReplyKeydown(e: KeyboardEvent) {
-    if (!modalOpen || !commentExpanded) return;
+    catch (err) {
+        console.error("Failed to submit reply:", err);
+    }
+    finally {
+        submitting = false;
+    }
+}
+function handleReplyKeydown(e) {
+    if (!modalOpen || !commentExpanded)
+        return;
     if (e.key === "Escape") {
-      closeReply();
-      e.preventDefault();
-      e.stopPropagation();
+        closeReply();
+        e.preventDefault();
+        e.stopPropagation();
     }
-  }
-
-  $effect(() => {
+}
+$effect(() => {
     if (commentExpanded && replyInput) {
-      const t = setTimeout(() => replyInput?.focus?.(), 120);
-      return () => clearTimeout(t);
+        const t = setTimeout(() => replyInput?.focus?.(), 120);
+        return () => clearTimeout(t);
     }
-  });
-
-  function handleZapReceived(event: { zapReceipt: unknown }) {
+});
+function handleZapReceived(event) {
     onZapReceived?.(event);
-  }
-
-  function handleOptions() {
+}
+function getActionsModalContentPreview() {
+    if (actionsModalTarget === "root")
+        return (content || "").trim();
+    if (!actionsModalTarget)
+        return "";
+    if ("comment" in actionsModalTarget)
+        return actionsModalTarget.comment ?? "";
+    return getContentPreview(actionsModalTarget);
+}
+function handleOptions() {
     // TODO: Show options menu
-  }
+}
 </script>
 
 <svelte:window onkeydown={handleReplyKeydown} />
@@ -652,7 +536,7 @@
   bind:open={actionsModalOpen}
   authorName={actionsModalTarget === "root" ? (name || "Anonymous") : (actionsModalTarget?.displayName ?? "Anonymous")}
   authorPubkey={actionsModalTarget === "root" ? pubkey : (actionsModalTarget ? ("senderPubkey" in actionsModalTarget ? actionsModalTarget.senderPubkey : actionsModalTarget.pubkey) ?? null : null)}
-  contentPreview={actionsModalTarget === "root" ? (content || "").trim() : (actionsModalTarget ? ("comment" in actionsModalTarget ? (actionsModalTarget as ThreadZapItem).comment ?? "" : getContentPreview(actionsModalTarget as ReplyComment)) : "")}
+  contentPreview={getActionsModalContentPreview()}
   onComment={actionsModalOnComment}
   onZap={actionsModalOnZap}
 />

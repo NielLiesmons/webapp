@@ -1,113 +1,86 @@
-<script lang="ts">
-	import { onMount } from 'svelte';
-	import { browser } from '$app/environment';
-	import AppStackCard from '$lib/components/cards/AppStackCard.svelte';
-	import SkeletonLoader from '$lib/components/common/SkeletonLoader.svelte';
-	import {
-		getStacks,
-		getHasMore as getStacksHasMore,
-		isLoadingMore as isStacksLoadingMore,
-		isStacksInitialized,
-		scheduleStacksRefresh,
-		loadMoreStacks,
-		resolveStackApps
-	} from '$lib/stores/stacks.svelte';
-	import { nip19 } from 'nostr-tools';
-	import { fetchEvents } from '$lib/nostr/service';
-	import { DEFAULT_CATALOG_RELAYS, EVENT_KINDS } from '$lib/config';
-	import { parseProfile, encodeStackNaddr, type App } from '$lib/nostr/models';
-
-	// Reactive state from store
-	const stacks = $derived(getStacks());
-	const hasMore = $derived(getStacksHasMore());
-	const loadingMore = $derived(isStacksLoadingMore());
-	const initialized = $derived(isStacksInitialized());
-
-	// Resolved stacks with apps and creators
-	let resolvedStacks = $state<
-		Array<{
-			name: string;
-			description: string;
-			apps: App[];
-			creator?: { name?: string; picture?: string; pubkey: string; npub: string };
-			pubkey: string;
-			dTag: string;
-		}>
-	>([]);
-	let loading = $state(true);
-
-	function getStackUrl(stack: { pubkey: string; dTag: string }): string {
-		return `/stacks/${encodeStackNaddr(stack.pubkey, stack.dTag)}`;
-	}
-
-	async function loadResolvedStacks() {
-		if (!browser) return;
-		if (stacks.length === 0) {
-			loading = false;
-			return;
-		}
-
-		loading = true;
-
-		try {
-			const resolved = await Promise.all(
-				stacks.map(async (stack) => {
-					const stackApps = await resolveStackApps(stack);
-
-					let creator = undefined;
-					if (stack.pubkey) {
-						try {
-							const profileEvents = await fetchEvents(
-								{ kinds: [EVENT_KINDS.PROFILE], authors: [stack.pubkey] },
-								{ relays: [...DEFAULT_CATALOG_RELAYS] }
-							);
-							if (profileEvents.length > 0) {
-								const profile = parseProfile(profileEvents[0]!);
-								creator = {
-									name: profile.displayName || profile.name,
-									picture: profile.picture,
-									pubkey: stack.pubkey,
-									npub: nip19.npubEncode(stack.pubkey)
-								};
-							}
-						} catch (e) {
-							// Profile fetch failed
-						}
-					}
-
-					return {
-						name: stack.title,
-						description: stack.description,
-						apps: stackApps,
-						creator,
-						pubkey: stack.pubkey,
-						dTag: stack.dTag
-					};
-				})
-			);
-
-			resolvedStacks = resolved;
-		} catch (err) {
-			console.error('Error resolving stacks:', err);
-		} finally {
-			loading = false;
-		}
-	}
-
-	$effect(() => {
-		if (initialized) {
-			if (stacks.length > 0) {
-				loadResolvedStacks();
-			} else {
-				loading = false;
-			}
-		}
-	});
-
-	onMount(() => {
-		if (!browser) return;
-		scheduleStacksRefresh();
-	});
+<script lang="js">
+import { onMount } from 'svelte';
+import { browser } from '$app/environment';
+import AppStackCard from '$lib/components/cards/AppStackCard.svelte';
+import SkeletonLoader from '$lib/components/common/SkeletonLoader.svelte';
+import { getStacks, getHasMore as getStacksHasMore, isLoadingMore as isStacksLoadingMore, isStacksInitialized, scheduleStacksRefresh, loadMoreStacks, resolveStackApps } from '$lib/stores/stacks.svelte.js';
+import { nip19 } from 'nostr-tools';
+import { fetchEvents } from '$lib/nostr/service';
+import { DEFAULT_CATALOG_RELAYS, EVENT_KINDS } from '$lib/config';
+import { parseProfile, encodeStackNaddr } from '$lib/nostr/models';
+// Reactive state from store
+const stacks = $derived(getStacks());
+const hasMore = $derived(getStacksHasMore());
+const loadingMore = $derived(isStacksLoadingMore());
+const initialized = $derived(isStacksInitialized());
+// Resolved stacks with apps and creators
+let resolvedStacks = $state([]);
+let loading = $state(true);
+function getStackUrl(stack) {
+    return `/stacks/${encodeStackNaddr(stack.pubkey, stack.dTag)}`;
+}
+async function loadResolvedStacks() {
+    if (!browser)
+        return;
+    if (stacks.length === 0) {
+        loading = false;
+        return;
+    }
+    loading = true;
+    try {
+        const resolved = await Promise.all(stacks.map(async (stack) => {
+            const stackApps = await resolveStackApps(stack);
+            let creator = undefined;
+            if (stack.pubkey) {
+                try {
+                    const profileEvents = await fetchEvents({ kinds: [EVENT_KINDS.PROFILE], authors: [stack.pubkey] }, { relays: [...DEFAULT_CATALOG_RELAYS] });
+                    if (profileEvents.length > 0) {
+                        const profile = parseProfile(profileEvents[0]);
+                        creator = {
+                            name: profile.displayName || profile.name,
+                            picture: profile.picture,
+                            pubkey: stack.pubkey,
+                            npub: nip19.npubEncode(stack.pubkey)
+                        };
+                    }
+                }
+                catch (e) {
+                    // Profile fetch failed
+                }
+            }
+            return {
+                name: stack.title,
+                description: stack.description,
+                apps: stackApps,
+                creator,
+                pubkey: stack.pubkey,
+                dTag: stack.dTag
+            };
+        }));
+        resolvedStacks = resolved;
+    }
+    catch (err) {
+        console.error('Error resolving stacks:', err);
+    }
+    finally {
+        loading = false;
+    }
+}
+$effect(() => {
+    if (initialized) {
+        if (stacks.length > 0) {
+            loadResolvedStacks();
+        }
+        else {
+            loading = false;
+        }
+    }
+});
+onMount(() => {
+    if (!browser)
+        return;
+    scheduleStacksRefresh();
+});
 </script>
 
 <svelte:head>

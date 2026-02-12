@@ -1,99 +1,76 @@
-<script lang="ts">
-	import { Search, X } from 'lucide-svelte';
-	import { fade } from 'svelte/transition';
-	import Label from './Label.svelte';
-	import ProfilePic from './ProfilePic.svelte';
-	import { ChevronRight } from '$lib/components/icons';
-	import { wheelScroll } from '$lib/actions/wheelScroll.js';
-	import { goto } from '$app/navigation';
-	import { zapstoreProfileStore, ZAPSTORE_PUBKEY } from '$lib/services/profile-search';
-
-	interface Props {
-		open?: boolean;
-		searchQuery?: string;
-		categories?: string[];
-		platforms?: string[];
-	}
-
-	let {
-		open = $bindable(false),
-		searchQuery = $bindable(''),
-		categories = [],
-		platforms = []
-	}: Props = $props();
-
-	let searchInput = $state<HTMLInputElement | undefined>(undefined);
-
-	// Zapstore profile from EventStore/cache (same as DetailHeader — one of first cached profiles)
-	let zapstoreProfile = $state<{ picture: string; name: string } | null>(null);
-	$effect(() => {
-		const unsub = zapstoreProfileStore.subscribe((v) => (zapstoreProfile = v));
-		return unsub;
-	});
-
-	// Common labels for quick search (tap = search for that term)
-	const commonLabels = [
-		'Nostr',
-		'Bitcoin',
-		'Chat',
-		'Files',
-		'Wallet',
-		'Social',
-		'Productivity',
-		'Utilities',
-		'Games',
-		'Developer'
-	];
-
-	// Single suggestion: exact text the user is typing (search on enter or click)
-	const suggestionText = $derived(searchQuery.trim());
-	const showSuggestions = $derived(suggestionText.length > 0);
-
-	// Focus search input when modal opens
-	$effect(() => {
-		const el = searchInput;
-		if (open && el) {
-			setTimeout(() => {
-				el.focus();
-			}, 100);
-		}
-		if (!open) {
-			searchQuery = '';
-		}
-	});
-
-	function handleBackdropClick(e: MouseEvent) {
-		if (e.target === e.currentTarget) {
-			open = false;
-		}
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape') {
-			open = false;
-		}
-		if (e.key === 'Enter' && searchQuery.trim()) {
-			handleSearch();
-		}
-	}
-
-	function handleSuggestionClick() {
-		handleSearch();
-	}
-
-	function handleSearch() {
-		const q = searchQuery.trim();
-		if (q) {
-			open = false;
-			goto(`/apps?q=${encodeURIComponent(q)}`);
-		}
-	}
-
-	function handleLabelTap(label: string) {
-		searchQuery = label;
-		open = false;
-		goto(`/apps?q=${encodeURIComponent(label)}`);
-	}
+<script lang="js">
+import { Search, X } from 'lucide-svelte';
+import { fade } from 'svelte/transition';
+import Label from './Label.svelte';
+import ProfilePic from './ProfilePic.svelte';
+import { ChevronRight } from '$lib/components/icons';
+import { wheelScroll } from '$lib/actions/wheelScroll.js';
+import { goto } from '$app/navigation';
+import { zapstoreProfileStore, ZAPSTORE_PUBKEY } from '$lib/services/profile-search';
+let { open = $bindable(false), searchQuery = $bindable(''), categories = [], platforms = [] } = $props();
+let searchInput = $state(undefined);
+// Zapstore profile from EventStore/cache (same as DetailHeader — one of first cached profiles)
+let zapstoreProfile = $state(null);
+$effect(() => {
+    const unsub = zapstoreProfileStore.subscribe((v) => (zapstoreProfile = v));
+    return unsub;
+});
+// Common labels for quick search (tap = search for that term)
+const commonLabels = [
+    'Nostr',
+    'Bitcoin',
+    'Chat',
+    'Files',
+    'Wallet',
+    'Social',
+    'Productivity',
+    'Utilities',
+    'Games',
+    'Developer'
+];
+// Single suggestion: exact text the user is typing (search on enter or click)
+const suggestionText = $derived(searchQuery.trim());
+const showSuggestions = $derived(suggestionText.length > 0);
+// Focus search input when modal opens
+$effect(() => {
+    const el = searchInput;
+    if (open && el) {
+        setTimeout(() => {
+            el.focus();
+        }, 100);
+    }
+    if (!open) {
+        searchQuery = '';
+    }
+});
+function handleBackdropClick(e) {
+    if (e.target === e.currentTarget) {
+        open = false;
+    }
+}
+function handleKeydown(e) {
+    if (e.key === 'Escape') {
+        open = false;
+    }
+    if (e.key === 'Enter' && searchQuery.trim()) {
+        handleSearch();
+    }
+}
+function handleSuggestionClick() {
+    handleSearch();
+}
+function handleSearch() {
+    const q = searchQuery.trim();
+    if (q) {
+        open = false;
+        goto(`/apps?q=${encodeURIComponent(q)}`);
+    }
+}
+function handleLabelTap(label) {
+    searchQuery = label;
+    open = false;
+    goto(`/apps?q=${encodeURIComponent(label)}`);
+}
 </script>
 
 {#snippet AndroidIcon()}

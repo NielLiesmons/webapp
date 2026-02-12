@@ -1,753 +1,645 @@
-<script lang="ts">
-  import { onMount } from "svelte";
-  import { browser } from "$app/environment";
-  import { Package, X } from "lucide-svelte";
-  import type { App, Release, NostrEvent } from "$lib/nostr";
-  import {
-    queryStore,
-    queryStoreOne,
-    queryCommentsFromStore,
-    watchEvent,
-    fetchEvents,
-    parseApp,
-    parseRelease,
-    initNostrService,
-    fetchProfile,
-    fetchComments,
-    fetchCommentRepliesByE,
-    fetchZaps,
-    parseComment,
-    parseZapReceipt,
-    encodeAppNaddr,
-    publishComment,
-  } from "$lib/nostr";
-  import { parseAppStack } from "$lib/nostr/models";
-  import { getApps } from "$lib/stores/nostr.svelte";
-  import AppSmallCard from "$lib/components/cards/AppSmallCard.svelte";
-  import SkeletonLoader from "$lib/components/common/SkeletonLoader.svelte";
-  import { nip19 } from "nostr-tools";
-  import { EVENT_KINDS, DEFAULT_CATALOG_RELAYS, PLATFORM_FILTER } from "$lib/config";
-  import { wheelScroll } from "$lib/actions/wheelScroll.js";
-  import type { PageData } from "./$types";
-  import AppPic from "$lib/components/common/AppPic.svelte";
-  import ProfilePic from "$lib/components/common/ProfilePic.svelte";
-  import DetailHeader from "$lib/components/layout/DetailHeader.svelte";
-  import { SocialTabs, BottomBar } from "$lib/components/social";
-  import Modal from "$lib/components/common/Modal.svelte";
-  import DownloadModal from "$lib/components/common/DownloadModal.svelte";
-  import { createSearchProfilesFunction, ZAPSTORE_PUBKEY } from "$lib/services/profile-search";
-  import { createSearchEmojisFunction } from "$lib/services/emoji-search";
-  import { getCurrentPubkey, getIsSignedIn, signEvent } from "$lib/stores/auth.svelte";
-  import { renderMarkdown } from "$lib/utils/markdown";
-
-  let { data }: { data: PageData } = $props();
-
-  const searchProfiles = $derived(createSearchProfilesFunction(() => getCurrentPubkey()));
-  const searchEmojis = $derived(createSearchEmojisFunction(getCurrentPubkey()));
-
-  const error = $derived(data.error ?? null);
-
-  // Local state - start with prerendered data
-  let app = $state<App | null>(data.app);
-  let latestRelease = $state<Release | null>(data.latestRelease);
-  let refreshing = $state(false);
-
-  // Publisher profile
-  let publisherProfile = $state<{
-    displayName?: string;
-    name?: string;
-    picture?: string;
-  } | null>(null);
-
-  // Description expand state
-  let descriptionExpanded = $state(false);
-  let isTruncated = $state(false);
-
-  // Screenshot carousel state
-  let carouselOpen = $state(false);
-  let currentImageIndex = $state(0);
-  let carouselImageLoaded = $state(false);
-
-  // Comments and zaps state (comments may have pending + npub for display)
-  let comments = $state<(ReturnType<typeof parseComment> & { pending?: boolean; npub?: string })[]>([]);
-  let commentsLoading = $state(false);
-  let commentsError = $state("");
-  let profiles = $state<Record<string, { displayName?: string; name?: string; picture?: string } | null>>({});
-  let profilesLoading = $state(false);
-
-  let zaps = $state<(ReturnType<typeof parseZapReceipt> & { id: string })[]>([]);
-  let zapsLoading = $state(false);
-  let zapperProfiles = $state(new Map<string, { displayName?: string; name?: string; picture?: string }>());
-
-  let releases = $state<Release[]>([]);
-  let releasesLoading = $state(false);
-  let releasesModalOpen = $state(false);
-  let releaseNotesExpanded = $state<Set<string>>(new Set());
-  let downloadModalOpen = $state(false);
-  let getStartedModalOpen = $state(false);
-  let securityModalOpen = $state(false);
-  let suggestionApps = $state<App[]>([]);
-  let suggestionsLoading = $state(true);
-  let suggestionsModalOpen = $state(false);
-
-  const otherZaps = $derived(
-    zaps.map((z) => {
-      const prof = z.senderPubkey ? zapperProfiles.get(z.senderPubkey) : undefined;
-      return {
+<script lang="js">
+import { onMount } from "svelte";
+import { browser } from "$app/environment";
+import { Package, X } from "lucide-svelte";
+import { queryStore, queryStoreOne, queryCommentsFromStore, watchEvent, fetchEvents, parseApp, parseRelease, initNostrService, fetchProfile, fetchComments, fetchCommentRepliesByE, fetchZaps, parseComment, parseZapReceipt, encodeAppNaddr, publishComment, } from "$lib/nostr";
+import { parseAppStack } from "$lib/nostr/models";
+import { getApps } from "$lib/stores/nostr.svelte.js";
+import AppSmallCard from "$lib/components/cards/AppSmallCard.svelte";
+import SkeletonLoader from "$lib/components/common/SkeletonLoader.svelte";
+import { nip19 } from "nostr-tools";
+import { EVENT_KINDS, DEFAULT_CATALOG_RELAYS, PLATFORM_FILTER } from "$lib/config";
+import { wheelScroll } from "$lib/actions/wheelScroll.js";
+import AppPic from "$lib/components/common/AppPic.svelte";
+import ProfilePic from "$lib/components/common/ProfilePic.svelte";
+import DetailHeader from "$lib/components/layout/DetailHeader.svelte";
+import { SocialTabs, BottomBar } from "$lib/components/social";
+import Modal from "$lib/components/common/Modal.svelte";
+import DownloadModal from "$lib/components/common/DownloadModal.svelte";
+import { createSearchProfilesFunction, ZAPSTORE_PUBKEY } from "$lib/services/profile-search";
+import { createSearchEmojisFunction } from "$lib/services/emoji-search";
+import { getCurrentPubkey, getIsSignedIn, signEvent } from "$lib/stores/auth.svelte.js";
+import { renderMarkdown } from "$lib/utils/markdown";
+let { data } = $props();
+const searchProfiles = $derived(createSearchProfilesFunction(() => getCurrentPubkey()));
+const searchEmojis = $derived(createSearchEmojisFunction(getCurrentPubkey()));
+const error = $derived(data.error ?? null);
+// Local state - start with prerendered data
+let app = $state(data.app);
+let latestRelease = $state(data.latestRelease);
+let refreshing = $state(false);
+// Publisher profile
+let publisherProfile = $state(null);
+// Description expand state
+let descriptionExpanded = $state(false);
+let isTruncated = $state(false);
+// Screenshot carousel state
+let carouselOpen = $state(false);
+let currentImageIndex = $state(0);
+let carouselImageLoaded = $state(false);
+// Comments and zaps state (comments may have pending + npub for display)
+let comments = $state([]);
+let commentsLoading = $state(false);
+let commentsError = $state("");
+let profiles = $state({});
+let profilesLoading = $state(false);
+let zaps = $state([]);
+let zapsLoading = $state(false);
+let zapperProfiles = $state(new Map());
+let releases = $state([]);
+let releasesLoading = $state(false);
+let releasesModalOpen = $state(false);
+let releaseNotesExpanded = $state(new Set());
+let downloadModalOpen = $state(false);
+let getStartedModalOpen = $state(false);
+let securityModalOpen = $state(false);
+let suggestionApps = $state([]);
+let suggestionsLoading = $state(true);
+let suggestionsModalOpen = $state(false);
+const otherZaps = $derived(zaps.map((z) => {
+    const prof = z.senderPubkey ? zapperProfiles.get(z.senderPubkey) : undefined;
+    return {
         amount: z.amountSats,
         profile: z.senderPubkey
-          ? { pictureUrl: prof?.picture, name: prof?.displayName ?? prof?.name, pubkey: z.senderPubkey }
-          : undefined,
-      };
-    })
-  );
-
-  // Catalog for this app
-  const catalogs = [
+            ? { pictureUrl: prof?.picture, name: prof?.displayName ?? prof?.name, pubkey: z.senderPubkey }
+            : undefined,
+    };
+}));
+// Catalog for this app
+const catalogs = [
     {
-      name: "Zapstore",
-      pictureUrl: "https://zapstore.dev/zapstore-icon.png",
-      pubkey: "78ce6faa72264387284e647ba6938995735ec8c7d5c5a65737e55f2fe2202182",
+        name: "Zapstore",
+        pictureUrl: "https://zapstore.dev/zapstore-icon.png",
+        pubkey: "78ce6faa72264387284e647ba6938995735ec8c7d5c5a65737e55f2fe2202182",
     },
-  ];
-
-  // Derived values
-  const truncatedNpub = $derived(
-    app?.npub ? `${app.npub.slice(0, 12)}...${app.npub.slice(-6)}` : ""
-  );
-  const publisherName = $derived(
-    publisherProfile?.displayName || publisherProfile?.name || truncatedNpub
-  );
-  const publisherPictureUrl = $derived(publisherProfile?.picture || "");
-  const publisherUrl = $derived(app?.npub ? `/profile/${app.npub}` : "#");
-  const platforms = $derived(app?.platform ? [app.platform] : ["Android"]);
-  const hasRepository = $derived(!!app?.repository);
-  const isZapstorePublisher = $derived(
-    !!app?.pubkey && !!ZAPSTORE_PUBKEY && app.pubkey.toLowerCase() === ZAPSTORE_PUBKEY.toLowerCase()
-  );
-  /** Zapstore app we link to in GetTheAppSection: show "Published by Developer" (Zapstore is the developer) */
-  const ZAPSTORE_APP_NADDR = "naddr1qvzqqqr7pvpzq7xwd748yfjrsu5yuerm56fcn9tntmyv04w95etn0e23xrczvvraqqgxgetk9eaxzurnw3hhyefwv9c8qakg5jt";
-  const isZapstoreApp = $derived(!!app?.naddr && app.naddr === ZAPSTORE_APP_NADDR);
-  const publishedByDeveloper = $derived(
-    isZapstoreApp || (!isZapstorePublisher && hasRepository)
-  );
-
-  // Check if description is truncated
-  function checkTruncation(node: HTMLElement) {
+];
+// Derived values
+const truncatedNpub = $derived(app?.npub ? `${app.npub.slice(0, 12)}...${app.npub.slice(-6)}` : "");
+const publisherName = $derived(publisherProfile?.displayName || publisherProfile?.name || truncatedNpub);
+const publisherPictureUrl = $derived(publisherProfile?.picture || "");
+const publisherUrl = $derived(app?.npub ? `/profile/${app.npub}` : "#");
+const platforms = $derived(app?.platform ? [app.platform] : ["Android"]);
+const hasRepository = $derived(!!app?.repository);
+const isZapstorePublisher = $derived(!!app?.pubkey && !!ZAPSTORE_PUBKEY && app.pubkey.toLowerCase() === ZAPSTORE_PUBKEY.toLowerCase());
+/** Zapstore app we link to in GetTheAppSection: show "Published by Developer" (Zapstore is the developer) */
+const ZAPSTORE_APP_NADDR = "naddr1qvzqqqr7pvpzq7xwd748yfjrsu5yuerm56fcn9tntmyv04w95etn0e23xrczvvraqqgxgetk9eaxzurnw3hhyefwv9c8qakg5jt";
+const isZapstoreApp = $derived(!!app?.naddr && app.naddr === ZAPSTORE_APP_NADDR);
+const publishedByDeveloper = $derived(isZapstoreApp || (!isZapstorePublisher && hasRepository));
+// Check if description is truncated
+function checkTruncation(node) {
     setTimeout(() => {
-      if (node) {
-        isTruncated = node.scrollHeight > node.clientHeight;
-      }
+        if (node) {
+            isTruncated = node.scrollHeight > node.clientHeight;
+        }
     }, 0);
-
     const resizeObserver = new ResizeObserver(() => {
-      if (node && !descriptionExpanded) {
-        isTruncated = node.scrollHeight > node.clientHeight;
-      }
+        if (node && !descriptionExpanded) {
+            isTruncated = node.scrollHeight > node.clientHeight;
+        }
     });
     resizeObserver.observe(node);
-
     return {
-      destroy() {
-        resizeObserver.disconnect();
-      },
+        destroy() {
+            resizeObserver.disconnect();
+        },
     };
-  }
-
-  // Screenshot carousel functions
-  function openCarousel(index: number) {
+}
+// Screenshot carousel functions
+function openCarousel(index) {
     currentImageIndex = index;
     carouselOpen = true;
     document.body.style.overflow = "hidden";
-  }
-
-  function closeCarousel() {
+}
+function closeCarousel() {
     carouselOpen = false;
     document.body.style.overflow = "";
-  }
-
-  function nextImage() {
+}
+function nextImage() {
     if (app?.images) {
-      currentImageIndex = (currentImageIndex + 1) % app.images.length;
-      carouselImageLoaded = false;
+        currentImageIndex = (currentImageIndex + 1) % app.images.length;
+        carouselImageLoaded = false;
     }
-  }
-
-  function prevImage() {
+}
+function prevImage() {
     if (app?.images) {
-      currentImageIndex = (currentImageIndex - 1 + app.images.length) % app.images.length;
-      carouselImageLoaded = false;
+        currentImageIndex = (currentImageIndex - 1 + app.images.length) % app.images.length;
+        carouselImageLoaded = false;
     }
-  }
-
-  function handleKeydown(event: KeyboardEvent) {
-    if (!carouselOpen) return;
-
+}
+function handleKeydown(event) {
+    if (!carouselOpen)
+        return;
     if (event.key === "Escape") {
-      closeCarousel();
-    } else if (event.key === "ArrowRight") {
-      nextImage();
-    } else if (event.key === "ArrowLeft") {
-      prevImage();
+        closeCarousel();
     }
-  }
-
-  // Strip markdown formatting
-  function stripMarkdown(text: string) {
-    if (!text) return "";
+    else if (event.key === "ArrowRight") {
+        nextImage();
+    }
+    else if (event.key === "ArrowLeft") {
+        prevImage();
+    }
+}
+// Strip markdown formatting
+function stripMarkdown(text) {
+    if (!text)
+        return "";
     return text
-      .replace(/^#{1,6}\s*/gm, "")
-      .replace(/\*\*(.+?)\*\*/g, "$1")
-      .replace(/\*(.+?)\*/g, "$1")
-      .replace(/__(.+?)__/g, "$1")
-      .replace(/_(.+?)_/g, "$1")
-      .replace(/~~(.+?)~~/g, "$1")
-      .replace(/`(.+?)`/g, "$1")
-      .replace(/^\s*[-*+]\s+/gm, "")
-      .replace(/^\s*\d+\.\s+/gm, "")
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-      .trim();
-  }
-
-  // Release notes preview: strip markdown first, then take first sentence or first 50 chars
-  function releaseNotesPreview(notes: string | undefined): string {
-    if (!notes) return "";
+        .replace(/^#{1,6}\s*/gm, "")
+        .replace(/\*\*(.+?)\*\*/g, "$1")
+        .replace(/\*(.+?)\*/g, "$1")
+        .replace(/__(.+?)__/g, "$1")
+        .replace(/_(.+?)_/g, "$1")
+        .replace(/~~(.+?)~~/g, "$1")
+        .replace(/`(.+?)`/g, "$1")
+        .replace(/^\s*[-*+]\s+/gm, "")
+        .replace(/^\s*\d+\.\s+/gm, "")
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+        .trim();
+}
+// Release notes preview: strip markdown first, then take first sentence or first 50 chars
+function releaseNotesPreview(notes) {
+    if (!notes)
+        return "";
     const onOneLine = notes.replace(/\n/g, " ").trim();
     const stripped = stripMarkdown(onOneLine);
-    if (!stripped) return "";
+    if (!stripped)
+        return "";
     const firstSentence = stripped.split(/[.!?]/)[0]?.trim() ?? stripped;
     return (firstSentence.length > 50 ? firstSentence.slice(0, 50) : firstSentence) || "";
-  }
-
-  // Load publisher profile
-  async function loadPublisherProfile(pubkey: string) {
-    if (!pubkey) return;
+}
+// Load publisher profile
+async function loadPublisherProfile(pubkey) {
+    if (!pubkey)
+        return;
     try {
-      const event = await fetchProfile(pubkey);
-      if (event) {
-        const content = JSON.parse(event.content);
-        publisherProfile = {
-          displayName: content.display_name || content.displayName,
-          name: content.name,
-          picture: content.picture,
-        };
-      }
-    } catch (err) {
-      console.error("Error fetching publisher profile:", err);
-    }
-  }
-
-  // Load comments (cached comments from store show immediately; only show loading when no cache)
-  async function loadComments() {
-    if (!app?.pubkey || !app?.dTag) return;
-
-    const hadCached = comments.length > 0;
-    if (!hadCached) commentsLoading = true;
-    commentsError = "";
-
-    try {
-      const events = await fetchComments(app.pubkey, app.dTag);
-      comments = events.map(parseComment);
-
-      // Load profiles for comment authors
-      const uniquePubkeys = [...new Set(comments.map((c) => c.pubkey))];
-      profilesLoading = true;
-
-      await Promise.all(
-        uniquePubkeys.map(async (pubkey) => {
-          try {
-            const event = await fetchProfile(pubkey);
-            if (event) {
-              const content = JSON.parse(event.content);
-              profiles[pubkey] = {
+        const event = await fetchProfile(pubkey);
+        if (event) {
+            const content = JSON.parse(event.content);
+            publisherProfile = {
                 displayName: content.display_name || content.displayName,
                 name: content.name,
                 picture: content.picture,
-              };
-              profiles = profiles;
-            }
-          } catch {
-            profiles[pubkey] = null;
-          }
-        })
-      );
-
-      profilesLoading = false;
-    } catch (err) {
-      commentsError = "Failed to load comments";
-      console.error(err);
-    } finally {
-      commentsLoading = false;
+            };
+        }
     }
-  }
-
-  /** Load replies that reference our comments/zaps via #e (e.g. from other apps that don't add #a). Returns all comment ids after merge (so caller can fetch zaps on them). */
-  async function loadCommentReplies(): Promise<string[]> {
-    if (!app?.pubkey || !app?.dTag) return comments.map((c) => c.id);
+    catch (err) {
+        console.error("Error fetching publisher profile:", err);
+    }
+}
+// Load comments (cached comments from store show immediately; only show loading when no cache)
+async function loadComments() {
+    if (!app?.pubkey || !app?.dTag)
+        return;
+    const hadCached = comments.length > 0;
+    if (!hadCached)
+        commentsLoading = true;
+    commentsError = "";
+    try {
+        const events = await fetchComments(app.pubkey, app.dTag);
+        comments = events.map(parseComment);
+        // Load profiles for comment authors
+        const uniquePubkeys = [...new Set(comments.map((c) => c.pubkey))];
+        profilesLoading = true;
+        await Promise.all(uniquePubkeys.map(async (pubkey) => {
+            try {
+                const event = await fetchProfile(pubkey);
+                if (event) {
+                    const content = JSON.parse(event.content);
+                    profiles[pubkey] = {
+                        displayName: content.display_name || content.displayName,
+                        name: content.name,
+                        picture: content.picture,
+                    };
+                    profiles = profiles;
+                }
+            }
+            catch {
+                profiles[pubkey] = null;
+            }
+        }));
+        profilesLoading = false;
+    }
+    catch (err) {
+        commentsError = "Failed to load comments";
+        console.error(err);
+    }
+    finally {
+        commentsLoading = false;
+    }
+}
+/** Load replies that reference our comments/zaps via #e (e.g. from other apps that don't add #a). Returns all comment ids after merge (so caller can fetch zaps on them). */
+async function loadCommentReplies() {
+    if (!app?.pubkey || !app?.dTag)
+        return comments.map((c) => c.id);
     const commentIds = comments.map((c) => c.id);
     const zapIds = zaps.map((z) => z.id);
     const allIds = [...new Set([...commentIds, ...zapIds])];
-    if (allIds.length === 0) return commentIds;
+    if (allIds.length === 0)
+        return commentIds;
     try {
-      const events = await fetchCommentRepliesByE(allIds);
-      const existingIds = new Set(comments.map((c) => c.id.toLowerCase()));
-      const newEvents = events.filter((ev) => !existingIds.has(ev.id.toLowerCase()));
-      if (newEvents.length === 0) return comments.map((c) => c.id);
-      const newParsed = newEvents.map((ev) => {
-        const p = parseComment(ev) as ReturnType<typeof parseComment> & { npub?: string };
-        p.npub = nip19.npubEncode(ev.pubkey);
-        return p;
-      });
-      comments = [...comments, ...newParsed];
-      return comments.map((c) => c.id);
-    } catch (err) {
-      console.error("Failed to load comment replies by #e:", err);
-      return comments.map((c) => c.id);
+        const events = await fetchCommentRepliesByE(allIds);
+        const existingIds = new Set(comments.map((c) => c.id.toLowerCase()));
+        const newEvents = events.filter((ev) => !existingIds.has(ev.id.toLowerCase()));
+        if (newEvents.length === 0)
+            return comments.map((c) => c.id);
+        const newParsed = newEvents.map((ev) => {
+            const p = parseComment(ev);
+            p.npub = nip19.npubEncode(ev.pubkey);
+            return p;
+        });
+        comments = [...comments, ...newParsed];
+        return comments.map((c) => c.id);
     }
-  }
-
-  /** 1) Fetch zaps that tag the main app/stack (#a) → main feed zaps. 2) Then fetch zaps that tag any comment or zap in that main feed (#e) and merge. One level only; deeper zaps later. */
-  async function loadZaps() {
-    if (!app?.pubkey || !app?.dTag) return;
-
+    catch (err) {
+        console.error("Failed to load comment replies by #e:", err);
+        return comments.map((c) => c.id);
+    }
+}
+/** 1) Fetch zaps that tag the main app/stack (#a) → main feed zaps. 2) Then fetch zaps that tag any comment or zap in that main feed (#e) and merge. One level only; deeper zaps later. */
+async function loadZaps() {
+    if (!app?.pubkey || !app?.dTag)
+        return;
     zapsLoading = true;
     try {
-      // Step 1: zaps on the main event (app/stack) only
-      const initialEvents = await fetchZaps(app.pubkey, app.dTag);
-      const byId = new Map(initialEvents.map((e) => [e.id, e]));
-
-      const parseOne = (e: NostrEvent) => {
-        const parsed = { ...parseZapReceipt(e), id: e.id };
-        if (!parsed.zappedEventId && e.tags?.length) {
-          const eTag = e.tags.find((t: string[]) => (t[0]?.toLowerCase() === 'e') && t[1]);
-          if (eTag?.[1]) parsed.zappedEventId = eTag[1];
-        }
-        return parsed;
-      };
-
-      zaps = Array.from(byId.values()).map(parseOne);
-      await hydrateZapperProfiles();
-    } catch (err) {
-      console.error("Failed to load zaps:", err);
-    } finally {
-      zapsLoading = false;
+        // Step 1: zaps on the main event (app/stack) only
+        const initialEvents = await fetchZaps(app.pubkey, app.dTag);
+        const byId = new Map(initialEvents.map((e) => [e.id, e]));
+        const parseOne = (e) => {
+            const parsed = { ...parseZapReceipt(e), id: e.id };
+            if (!parsed.zappedEventId && e.tags?.length) {
+                const eTag = e.tags.find((t) => (t[0]?.toLowerCase() === 'e') && t[1]);
+                if (eTag?.[1])
+                    parsed.zappedEventId = eTag[1];
+            }
+            return parsed;
+        };
+        zaps = Array.from(byId.values()).map(parseOne);
+        await hydrateZapperProfiles();
     }
-  }
-
-  /** Fetch zaps that tag any of the given event ids (#e) and merge into zaps. Used for zaps on main-feed comments and zaps. */
-  async function loadZapsByMainFeedIds(mainFeedEventIds: string[]) {
-    if (!app?.pubkey || !app?.dTag || mainFeedEventIds.length === 0) return;
-
+    catch (err) {
+        console.error("Failed to load zaps:", err);
+    }
+    finally {
+        zapsLoading = false;
+    }
+}
+/** Fetch zaps that tag any of the given event ids (#e) and merge into zaps. Used for zaps on main-feed comments and zaps. */
+async function loadZapsByMainFeedIds(mainFeedEventIds) {
+    if (!app?.pubkey || !app?.dTag || mainFeedEventIds.length === 0)
+        return;
     try {
-      const events = await fetchZaps(app.pubkey, app.dTag, { eventIds: mainFeedEventIds });
-      const existingIds = new Set(zaps.map((z) => z.id.toLowerCase()));
-      const newEvents = events.filter((e) => !existingIds.has(e.id.toLowerCase()));
-      if (newEvents.length === 0) return;
-
-      const parseOne = (e: NostrEvent) => {
-        const parsed = { ...parseZapReceipt(e), id: e.id };
-        if (!parsed.zappedEventId && e.tags?.length) {
-          const eTag = e.tags.find((t: string[]) => (t[0]?.toLowerCase() === 'e') && t[1]);
-          if (eTag?.[1]) parsed.zappedEventId = eTag[1].toLowerCase();
+        const events = await fetchZaps(app.pubkey, app.dTag, { eventIds: mainFeedEventIds });
+        const existingIds = new Set(zaps.map((z) => z.id.toLowerCase()));
+        const newEvents = events.filter((e) => !existingIds.has(e.id.toLowerCase()));
+        if (newEvents.length === 0)
+            return;
+        const parseOne = (e) => {
+            const parsed = { ...parseZapReceipt(e), id: e.id };
+            if (!parsed.zappedEventId && e.tags?.length) {
+                const eTag = e.tags.find((t) => (t[0]?.toLowerCase() === 'e') && t[1]);
+                if (eTag?.[1])
+                    parsed.zappedEventId = eTag[1].toLowerCase();
+            }
+            return parsed;
+        };
+        const newZaps = newEvents.map(parseOne);
+        const merged = [...zaps];
+        const mergedIds = new Set(merged.map((z) => z.id.toLowerCase()));
+        for (const z of newZaps) {
+            if (!mergedIds.has(z.id.toLowerCase())) {
+                merged.push(z);
+                mergedIds.add(z.id.toLowerCase());
+            }
         }
-        return parsed;
-      };
-
-      const newZaps = newEvents.map(parseOne);
-      const merged = [...zaps];
-      const mergedIds = new Set(merged.map((z) => z.id.toLowerCase()));
-      for (const z of newZaps) {
-        if (!mergedIds.has(z.id.toLowerCase())) {
-          merged.push(z);
-          mergedIds.add(z.id.toLowerCase());
-        }
-      }
-      zaps = merged;
-      await hydrateZapperProfiles();
-    } catch (err) {
-      console.error("Failed to load zaps by main feed ids:", err);
+        zaps = merged;
+        await hydrateZapperProfiles();
     }
-  }
-
-  async function hydrateZapperProfiles() {
-    const uniqueSenders = [...new Set(zaps.map((z) => z.senderPubkey).filter(Boolean))] as string[];
+    catch (err) {
+        console.error("Failed to load zaps by main feed ids:", err);
+    }
+}
+async function hydrateZapperProfiles() {
+    const uniqueSenders = [...new Set(zaps.map((z) => z.senderPubkey).filter(Boolean))];
     const nextZapperProfiles = new Map(zapperProfiles);
     for (const pk of uniqueSenders) {
-      const ev = queryStoreOne({ kinds: [0], authors: [pk] });
-      if (ev?.content) {
-        try {
-          const c = JSON.parse(ev.content) as Record<string, unknown>;
-          nextZapperProfiles.set(pk, {
-            displayName: (c.display_name as string) ?? (c.name as string),
-            name: c.name as string,
-            picture: c.picture as string,
-          });
-        } catch {
-          /* ignore */
+        const ev = queryStoreOne({ kinds: [0], authors: [pk] });
+        if (ev?.content) {
+            try {
+                const c = JSON.parse(ev.content);
+                nextZapperProfiles.set(pk, {
+                    displayName: c.display_name ?? c.name,
+                    name: c.name,
+                    picture: c.picture,
+                });
+            }
+            catch {
+                /* ignore */
+            }
         }
-      }
     }
     zapperProfiles = new Map(nextZapperProfiles);
     const missing = uniqueSenders.filter((pk) => !nextZapperProfiles.has(pk)).slice(0, 20);
-    await Promise.all(
-      missing.map(async (pubkey) => {
+    await Promise.all(missing.map(async (pubkey) => {
         try {
-          const event = await fetchProfile(pubkey);
-          if (event?.content) {
-            const content = JSON.parse(event.content) as Record<string, unknown>;
-            const profile = {
-              displayName: (content.display_name as string) ?? (content.name as string),
-              name: content.name as string,
-              picture: content.picture as string,
-            };
-            nextZapperProfiles.set(pubkey, profile);
-            zapperProfiles = new Map(nextZapperProfiles);
-          }
-        } catch {
-          /* ignore */
+            const event = await fetchProfile(pubkey);
+            if (event?.content) {
+                const content = JSON.parse(event.content);
+                const profile = {
+                    displayName: content.display_name ?? content.name,
+                    name: content.name,
+                    picture: content.picture,
+                };
+                nextZapperProfiles.set(pubkey, profile);
+                zapperProfiles = new Map(nextZapperProfiles);
+            }
         }
-      })
-    );
-  }
-
-  async function handleCommentSubmit(event: {
-    text: string;
-    emojiTags: { shortcode: string; url: string }[];
-    mentions: string[];
-    parentId?: string;
-    replyToPubkey?: string;
-    rootPubkey?: string;
-    parentKind?: number;
-  }) {
+        catch {
+            /* ignore */
+        }
+    }));
+}
+async function handleCommentSubmit(event) {
     const userPubkey = getCurrentPubkey();
-    if (!userPubkey || !app) return;
+    if (!userPubkey || !app)
+        return;
     const { text, emojiTags: submitEmojiTags, parentId, replyToPubkey, rootPubkey, parentKind } = event;
     const tempId = `pending-${Date.now()}`;
-    const optimistic: (ReturnType<typeof parseComment> & { pending?: boolean; npub?: string }) = {
-      id: tempId,
-      pubkey: userPubkey,
-      content: text,
-      contentHtml: "",
-      emojiTags: submitEmojiTags ?? [],
-      createdAt: Math.floor(Date.now() / 1000),
-      parentId: parentId ?? null,
-      isReply: parentId != null,
-      pending: true,
-      npub: nip19.npubEncode(userPubkey),
+    const optimistic = {
+        id: tempId,
+        pubkey: userPubkey,
+        content: text,
+        contentHtml: "",
+        emojiTags: submitEmojiTags ?? [],
+        createdAt: Math.floor(Date.now() / 1000),
+        parentId: parentId ?? null,
+        isReply: parentId != null,
+        pending: true,
+        npub: nip19.npubEncode(userPubkey),
     };
     comments = [...comments, optimistic];
     try {
-      const signed = await publishComment(
-        text,
-        { contentType: "app", pubkey: app.pubkey, identifier: app.dTag },
-        signEvent as (t: import("nostr-tools").EventTemplate) => Promise<import("nostr-tools").NostrEvent>,
-        submitEmojiTags,
-        parentId,
-        replyToPubkey ?? rootPubkey,
-        parentKind
-      );
-      const parsed = parseComment(signed) as ReturnType<typeof parseComment> & { npub?: string };
-      parsed.npub = nip19.npubEncode(signed.pubkey);
-      comments = comments.filter((c) => c.id !== tempId);
-      comments = [...comments, parsed];
-      // So the new comment shows our name/avatar: ensure current user's profile is in profiles (cache first, then fetch)
-      const existing = queryStoreOne({ kinds: [0], authors: [userPubkey] });
-      if (existing?.content) {
-        try {
-          const c = JSON.parse(existing.content) as Record<string, unknown>;
-          profiles = { ...profiles, [userPubkey]: { displayName: (c.display_name as string) ?? (c.displayName as string), name: c.name as string, picture: c.picture as string } };
-        } catch {
-          /* ignore */
+        const signed = await publishComment(text, { contentType: "app", pubkey: app.pubkey, identifier: app.dTag }, signEvent, submitEmojiTags, parentId, replyToPubkey ?? rootPubkey, parentKind);
+        const parsed = parseComment(signed);
+        parsed.npub = nip19.npubEncode(signed.pubkey);
+        comments = comments.filter((c) => c.id !== tempId);
+        comments = [...comments, parsed];
+        // So the new comment shows our name/avatar: ensure current user's profile is in profiles (cache first, then fetch)
+        const existing = queryStoreOne({ kinds: [0], authors: [userPubkey] });
+        if (existing?.content) {
+            try {
+                const c = JSON.parse(existing.content);
+                profiles = { ...profiles, [userPubkey]: { displayName: c.display_name ?? c.displayName, name: c.name, picture: c.picture } };
+            }
+            catch {
+                /* ignore */
+            }
         }
-      } else {
-        try {
-          const event = await fetchProfile(userPubkey);
-          if (event?.content) {
-            const content = JSON.parse(event.content) as Record<string, unknown>;
-            profiles = { ...profiles, [userPubkey]: { displayName: (content.display_name as string) ?? (content.displayName as string), name: content.name as string, picture: content.picture as string } };
-          }
-        } catch {
-          /* ignore */
+        else {
+            try {
+                const event = await fetchProfile(userPubkey);
+                if (event?.content) {
+                    const content = JSON.parse(event.content);
+                    profiles = { ...profiles, [userPubkey]: { displayName: content.display_name ?? content.displayName, name: content.name, picture: content.picture } };
+                }
+            }
+            catch {
+                /* ignore */
+            }
         }
-      }
-    } catch (err) {
-      console.error("Failed to publish comment:", err);
-      comments = comments.filter((c) => c.id !== tempId);
-      commentsError =
-        err instanceof Error ? err.message : "Comment could not be published to any relay.";
     }
-  }
-
-  async function loadReleases(aTag: string) {
+    catch (err) {
+        console.error("Failed to publish comment:", err);
+        comments = comments.filter((c) => c.id !== tempId);
+        commentsError =
+            err instanceof Error ? err.message : "Comment could not be published to any relay.";
+    }
+}
+async function loadReleases(aTag) {
     releasesLoading = true;
     try {
-      const events = await fetchEvents(
-        { kinds: [EVENT_KINDS.RELEASE], "#a": [aTag], ...PLATFORM_FILTER, limit: 50 },
-        { relays: [...DEFAULT_CATALOG_RELAYS] }
-      );
-      const sorted = events.sort((a, b) => b.created_at - a.created_at);
-      releases = sorted.map((e) => parseRelease(e));
-      // Re-fetch zaps with release/metadata ids so we get #e-tagged zaps (legacy, match previous behavior)
-      const latest = releases[0];
-      if (latest && app?.pubkey && app?.dTag) {
-        const ids = [latest.id, ...(latest.artifacts ?? [])];
-        loadZapsByMainFeedIds(ids);
-      }
-    } catch (err) {
-      console.error("Failed to load releases:", err);
-      releases = [];
-    } finally {
-      releasesLoading = false;
+        const events = await fetchEvents({ kinds: [EVENT_KINDS.RELEASE], "#a": [aTag], ...PLATFORM_FILTER, limit: 50 }, { relays: [...DEFAULT_CATALOG_RELAYS] });
+        const sorted = events.sort((a, b) => b.created_at - a.created_at);
+        releases = sorted.map((e) => parseRelease(e));
+        // Re-fetch zaps with release/metadata ids so we get #e-tagged zaps (legacy, match previous behavior)
+        const latest = releases[0];
+        if (latest && app?.pubkey && app?.dTag) {
+            const ids = [latest.id, ...(latest.artifacts ?? [])];
+            loadZapsByMainFeedIds(ids);
+        }
     }
-  }
-
-  async function loadSuggestions(currentApp: App) {
+    catch (err) {
+        console.error("Failed to load releases:", err);
+        releases = [];
+    }
+    finally {
+        releasesLoading = false;
+    }
+}
+async function loadSuggestions(currentApp) {
     suggestionsLoading = true;
     suggestionApps = [];
     const currentKey = `${currentApp.pubkey}:${currentApp.dTag}`;
-    const seen = new Set<string>();
-    const collected: App[] = [];
-    function addApp(a: App) {
-      const key = `${a.pubkey}:${a.dTag}`;
-      if (key === currentKey || seen.has(key)) return;
-      seen.add(key);
-      collected.push(a);
+    const seen = new Set();
+    const collected = [];
+    function addApp(a) {
+        const key = `${a.pubkey}:${a.dTag}`;
+        if (key === currentKey || seen.has(key))
+            return;
+        seen.add(key);
+        collected.push(a);
     }
-
     const relays = [...DEFAULT_CATALOG_RELAYS];
-
     try {
-      // 1. Apps in stacks by this publisher — fetch from relays
-      const stackEvents = await fetchEvents(
-        {
-          kinds: [EVENT_KINDS.APP_STACK],
-          authors: [currentApp.pubkey],
-          limit: 30,
-        },
-        { relays }
-      );
-      for (const ev of stackEvents) {
-        const stack = parseAppStack(ev);
-        for (const ref of stack.appRefs) {
-          if (ref.kind !== EVENT_KINDS.APP) continue;
-          const appEvs = await fetchEvents(
-              {
-                kinds: [EVENT_KINDS.APP],
-                authors: [ref.pubkey],
-                "#d": [ref.identifier],
-                ...PLATFORM_FILTER,
-                limit: 1,
-              },
-              { relays }
-          );
-          const appEv = appEvs[0];
-          if (appEv) addApp(parseApp(appEv));
+        // 1. Apps in stacks by this publisher — fetch from relays
+        const stackEvents = await fetchEvents({
+            kinds: [EVENT_KINDS.APP_STACK],
+            authors: [currentApp.pubkey],
+            limit: 30,
+        }, { relays });
+        for (const ev of stackEvents) {
+            const stack = parseAppStack(ev);
+            for (const ref of stack.appRefs) {
+                if (ref.kind !== EVENT_KINDS.APP)
+                    continue;
+                const appEvs = await fetchEvents({
+                    kinds: [EVENT_KINDS.APP],
+                    authors: [ref.pubkey],
+                    "#d": [ref.identifier],
+                    ...PLATFORM_FILTER,
+                    limit: 1,
+                }, { relays });
+                const appEv = appEvs[0];
+                if (appEv)
+                    addApp(parseApp(appEv));
+            }
         }
-      }
-
-      // 2. Apps with same t tags — fetch from relays
-      const raw = currentApp.rawEvent as { tags?: string[][] } | undefined;
-      const tTags = (raw?.tags?.filter((t) => t[0] === "t").map((t) => t[1]).filter(Boolean) ?? []) as string[];
-      for (const t of tTags) {
-        const events = await fetchEvents(
-            { kinds: [EVENT_KINDS.APP], "#t": [t], ...PLATFORM_FILTER, limit: 25 },
-            { relays }
-        );
-        for (const ev of events) addApp(parseApp(ev));
-      }
-
-      // 3. Fetch apps from relays, then filter by first 10 (4+ letter) words from description
-      const words = (currentApp.description ?? "")
-        .split(/\s+/)
-        .filter((w) => w.length >= 4)
-        .slice(0, 10);
-      if (words.length > 0) {
-        const allAppEvents = await fetchEvents(
-          { kinds: [EVENT_KINDS.APP], ...PLATFORM_FILTER, limit: 150 },
-          { relays }
-        );
-        for (const ev of allAppEvents) {
-          const a = parseApp(ev);
-          const key = `${a.pubkey}:${a.dTag}`;
-          if (key === currentKey) continue;
-          const lowerDesc = (a.description ?? "").toLowerCase();
-          const lowerName = (a.name ?? "").toLowerCase();
-          const aRaw = a.rawEvent as { tags?: string[][] } | undefined;
-          const inTags =
-            aRaw?.tags?.some((tag) =>
-              tag.some(
-                (v, i) =>
-                  i > 0 &&
-                  words.some((w) => String(v).toLowerCase().includes(w.toLowerCase()))
-              )
-            ) ?? false;
-          const matches =
-            !!lowerDesc &&
-            words.some(
-              (w) =>
-                lowerDesc.includes(w.toLowerCase()) ||
-                lowerName.includes(w.toLowerCase()) ||
-                inTags
-            );
-          if (matches) addApp(a);
+        // 2. Apps with same t tags — fetch from relays
+        const raw = currentApp.rawEvent;
+        const tTags = (raw?.tags?.filter((t) => t[0] === "t").map((t) => t[1]).filter(Boolean) ?? []);
+        for (const t of tTags) {
+            const events = await fetchEvents({ kinds: [EVENT_KINDS.APP], "#t": [t], ...PLATFORM_FILTER, limit: 25 }, { relays });
+            for (const ev of events)
+                addApp(parseApp(ev));
         }
-      }
-
-      let result = collected.slice(0, 8);
-
-      // Only if we didn't find enough related apps, load fallback (recent apps from relays)
-      if (result.length < 8) {
-        const fallbackEvents = await fetchEvents(
-          { kinds: [EVENT_KINDS.APP], ...PLATFORM_FILTER, limit: 30 },
-          { relays }
-        );
-        const byCreated = fallbackEvents
-          .map((ev) => parseApp(ev))
-          .filter((a) => {
-            const k = `${a.pubkey}:${a.dTag}`;
-            return k !== currentKey && !seen.has(k);
-          })
-          .sort((a, b) => b.createdAt - a.createdAt)
-          .slice(0, 8 - result.length);
-        result = [...result, ...byCreated];
-      }
-
-      suggestionApps = result;
-    } catch (e) {
-      console.error("Suggestions load failed", e);
-      const fromStore = getApps().filter((a) => `${a.pubkey}:${a.dTag}` !== currentKey).slice(0, 8);
-      if (fromStore.length > 0) {
-        suggestionApps = fromStore;
-      } else {
-        const allAppEvents = queryStore({ kinds: [EVENT_KINDS.APP], ...PLATFORM_FILTER, limit: 30 });
-        suggestionApps = allAppEvents
-          .map((ev) => parseApp(ev))
-          .filter((a) => `${a.pubkey}:${a.dTag}` !== currentKey)
-          .sort((a, b) => b.createdAt - a.createdAt)
-          .slice(0, 8);
-      }
-    } finally {
-      suggestionsLoading = false;
+        // 3. Fetch apps from relays, then filter by first 10 (4+ letter) words from description
+        const words = (currentApp.description ?? "")
+            .split(/\s+/)
+            .filter((w) => w.length >= 4)
+            .slice(0, 10);
+        if (words.length > 0) {
+            const allAppEvents = await fetchEvents({ kinds: [EVENT_KINDS.APP], ...PLATFORM_FILTER, limit: 150 }, { relays });
+            for (const ev of allAppEvents) {
+                const a = parseApp(ev);
+                const key = `${a.pubkey}:${a.dTag}`;
+                if (key === currentKey)
+                    continue;
+                const lowerDesc = (a.description ?? "").toLowerCase();
+                const lowerName = (a.name ?? "").toLowerCase();
+                const aRaw = a.rawEvent;
+                const inTags = aRaw?.tags?.some((tag) => tag.some((v, i) => i > 0 &&
+                    words.some((w) => String(v).toLowerCase().includes(w.toLowerCase())))) ?? false;
+                const matches = !!lowerDesc &&
+                    words.some((w) => lowerDesc.includes(w.toLowerCase()) ||
+                        lowerName.includes(w.toLowerCase()) ||
+                        inTags);
+                if (matches)
+                    addApp(a);
+            }
+        }
+        let result = collected.slice(0, 8);
+        // Only if we didn't find enough related apps, load fallback (recent apps from relays)
+        if (result.length < 8) {
+            const fallbackEvents = await fetchEvents({ kinds: [EVENT_KINDS.APP], ...PLATFORM_FILTER, limit: 30 }, { relays });
+            const byCreated = fallbackEvents
+                .map((ev) => parseApp(ev))
+                .filter((a) => {
+                const k = `${a.pubkey}:${a.dTag}`;
+                return k !== currentKey && !seen.has(k);
+            })
+                .sort((a, b) => b.createdAt - a.createdAt)
+                .slice(0, 8 - result.length);
+            result = [...result, ...byCreated];
+        }
+        suggestionApps = result;
     }
-  }
-
-  onMount(async () => {
-    if (!browser || !data.app) return;
-
+    catch (e) {
+        console.error("Suggestions load failed", e);
+        const fromStore = getApps().filter((a) => `${a.pubkey}:${a.dTag}` !== currentKey).slice(0, 8);
+        if (fromStore.length > 0) {
+            suggestionApps = fromStore;
+        }
+        else {
+            const allAppEvents = queryStore({ kinds: [EVENT_KINDS.APP], ...PLATFORM_FILTER, limit: 30 });
+            suggestionApps = allAppEvents
+                .map((ev) => parseApp(ev))
+                .filter((a) => `${a.pubkey}:${a.dTag}` !== currentKey)
+                .sort((a, b) => b.createdAt - a.createdAt)
+                .slice(0, 8);
+        }
+    }
+    finally {
+        suggestionsLoading = false;
+    }
+}
+onMount(async () => {
+    if (!browser || !data.app)
+        return;
     // Ensure IndexedDB cache (including profiles) is in EventStore before any queries (ARCHITECTURE: local-first)
     await initNostrService();
-
     const aTagValue = `${EVENT_KINDS.APP}:${data.app.pubkey}:${data.app.dTag}`;
-
     // Sync: query EventStore immediately
     const cachedRelease = queryStoreOne({ kinds: [EVENT_KINDS.RELEASE], "#a": [aTagValue], ...PLATFORM_FILTER });
     if (cachedRelease) {
-      latestRelease = parseRelease(cachedRelease);
+        latestRelease = parseRelease(cachedRelease);
     }
-
     const cachedApp = queryStoreOne({
-      kinds: [EVENT_KINDS.APP],
-      authors: [data.app.pubkey],
-      "#d": [data.app.dTag],
-      ...PLATFORM_FILTER,
+        kinds: [EVENT_KINDS.APP],
+        authors: [data.app.pubkey],
+        "#d": [data.app.dTag],
+        ...PLATFORM_FILTER,
     });
     if (cachedApp) {
-      app = parseApp(cachedApp);
+        app = parseApp(cachedApp);
     }
-
     // Sync: comments from EventStore (local-first, 0ms)
     const cachedCommentEvents = queryCommentsFromStore(data.app.pubkey, data.app.dTag);
     if (cachedCommentEvents.length > 0) {
-      comments = cachedCommentEvents.map(parseComment);
-      // Sync: hydrate comment-author profiles from store so names/pics show immediately
-      const nextProfiles = { ...profiles };
-      const pubkeys = [...new Set(comments.map((c) => c.pubkey))];
-      for (const pk of pubkeys) {
-        const ev = queryStoreOne({ kinds: [0], authors: [pk] });
-        if (ev?.content) {
-          try {
-            const c = JSON.parse(ev.content) as Record<string, unknown>;
-            nextProfiles[pk] = {
-              displayName: (c.display_name as string) ?? (c.displayName as string),
-              name: c.name as string,
-              picture: c.picture as string,
-            };
-          } catch {
-            /* ignore */
-          }
+        comments = cachedCommentEvents.map(parseComment);
+        // Sync: hydrate comment-author profiles from store so names/pics show immediately
+        const nextProfiles = { ...profiles };
+        const pubkeys = [...new Set(comments.map((c) => c.pubkey))];
+        for (const pk of pubkeys) {
+            const ev = queryStoreOne({ kinds: [0], authors: [pk] });
+            if (ev?.content) {
+                try {
+                    const c = JSON.parse(ev.content);
+                    nextProfiles[pk] = {
+                        displayName: c.display_name ?? c.displayName,
+                        name: c.name,
+                        picture: c.picture,
+                    };
+                }
+                catch {
+                    /* ignore */
+                }
+            }
         }
-      }
-      profiles = nextProfiles;
+        profiles = nextProfiles;
     }
-
     // Load publisher profile
     if (data.app?.pubkey) {
-      loadPublisherProfile(data.app.pubkey);
+        loadPublisherProfile(data.app.pubkey);
     }
-
     // Async cascade: comments, zaps, then replies by #e (so other apps’ replies show)
     Promise.all([loadComments(), loadZaps()]).then(async () => {
-      const mainFeedZapIds = zaps.filter((z) => !z.zappedEventId).map((z) => z.id);
-      const allCommentIds = await loadCommentReplies();
-      loadZapsByMainFeedIds([...allCommentIds, ...mainFeedZapIds]);
+        const mainFeedZapIds = zaps.filter((z) => !z.zappedEventId).map((z) => z.id);
+        const allCommentIds = await loadCommentReplies();
+        loadZapsByMainFeedIds([...allCommentIds, ...mainFeedZapIds]);
     });
-
     // Background refresh from relays and load releases
-    const schedule =
-      "requestIdleCallback" in window
+    const schedule = "requestIdleCallback" in window
         ? window.requestIdleCallback
-        : (cb: () => void) => setTimeout(cb, 1);
-
+        : (cb) => setTimeout(cb, 1);
     schedule(async () => {
-      await initNostrService();
-      loadReleases(aTagValue);
-      loadSuggestions(data.app!);
-
-      refreshing = true;
-      let pending = 2;
-
-      const done = () => {
-        pending--;
-        if (pending === 0) refreshing = false;
-      };
-
-      watchEvent(
-        { kinds: [EVENT_KINDS.APP], authors: [data.app!.pubkey], "#d": [data.app!.dTag], ...PLATFORM_FILTER },
-        { relays: DEFAULT_CATALOG_RELAYS },
-        (freshEvent) => {
-          if (freshEvent) app = parseApp(freshEvent);
-          done();
-        }
-      );
-
-      watchEvent(
-        { kinds: [EVENT_KINDS.RELEASE], "#a": [aTagValue], ...PLATFORM_FILTER },
-        { relays: DEFAULT_CATALOG_RELAYS },
-        (freshEvent) => {
-          if (freshEvent) latestRelease = parseRelease(freshEvent);
-          done();
-        }
-      );
+        await initNostrService();
+        loadReleases(aTagValue);
+        loadSuggestions(data.app);
+        refreshing = true;
+        let pending = 2;
+        const done = () => {
+            pending--;
+            if (pending === 0)
+                refreshing = false;
+        };
+        watchEvent({ kinds: [EVENT_KINDS.APP], authors: [data.app.pubkey], "#d": [data.app.dTag], ...PLATFORM_FILTER }, { relays: DEFAULT_CATALOG_RELAYS }, (freshEvent) => {
+            if (freshEvent)
+                app = parseApp(freshEvent);
+            done();
+        });
+        watchEvent({ kinds: [EVENT_KINDS.RELEASE], "#a": [aTagValue], ...PLATFORM_FILTER }, { relays: DEFAULT_CATALOG_RELAYS }, (freshEvent) => {
+            if (freshEvent)
+                latestRelease = parseRelease(freshEvent);
+            done();
+        });
     });
-  });
-
-  function retryLoad() {
+});
+function retryLoad() {
     window.location.reload();
-  }
-
-  function formatReleaseDate(ts: number): string {
+}
+function formatReleaseDate(ts) {
     return new Date(ts * 1000).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
+        year: "numeric",
+        month: "short",
+        day: "numeric",
     });
-  }
-
-  function toggleReleaseNotesExpanded(id: string) {
+}
+function toggleReleaseNotesExpanded(id) {
     releaseNotesExpanded = new Set(releaseNotesExpanded);
-    if (releaseNotesExpanded.has(id)) releaseNotesExpanded.delete(id);
-    else releaseNotesExpanded.add(id);
-  }
+    if (releaseNotesExpanded.has(id))
+        releaseNotesExpanded.delete(id);
+    else
+        releaseNotesExpanded.add(id);
+}
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -996,7 +888,7 @@
       <SocialTabs
         app={app}
         version={latestRelease?.version}
-        mainEventIds={[app?.id, latestRelease?.id].filter(Boolean) as string[]}
+        mainEventIds={[app?.id, latestRelease?.id].filter(Boolean)}
         {publisherProfile}
         getAppSlug={(p, d) => (app ? (app.naddr || encodeAppNaddr(p, d)) : "")}
         pubkeyToNpub={(pk) => nip19.npubEncode(pk)}

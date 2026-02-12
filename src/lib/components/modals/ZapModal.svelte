@@ -1,75 +1,50 @@
-<script lang="ts">
-  /**
-   * ZapModal - Modal for sending a zap (Lightning tip).
-   * Simplified: amount + message, callback when user confirms.
-   * Full invoice/success flow can be added when createZap is implemented.
-   */
-  import Modal from "$lib/components/common/Modal.svelte";
-  import ProfilePic from "$lib/components/common/ProfilePic.svelte";
-  import { Zap } from "$lib/components/icons";
-  import { getCurrentPubkey } from "$lib/stores/auth.svelte";
-
-  interface ZapTarget {
-    name?: string;
-    pubkey?: string;
-    dTag?: string;
-    id?: string;
-    pictureUrl?: string;
-  }
-
-  interface Props {
-    isOpen?: boolean;
-    target?: ZapTarget | null;
-    publisherName?: string;
-    onzap?: (event: { amount: number; message: string }) => void;
-    onclose?: () => void;
-  }
-
-  let {
-    isOpen = $bindable(false),
-    target = null,
-    publisherName = "",
-    onzap,
-    onclose,
-  }: Props = $props();
-
-  let zapValue = $state(100);
-  let message = $state("");
-  let loading = $state(false);
-  let error = $state("");
-
-  const presets = [21, 100, 500, 1000, 5000, 10000];
-  const isConnected = $derived(getCurrentPubkey() !== null);
-
-  function close() {
+<script lang="js">
+/**
+ * ZapModal - Modal for sending a zap (Lightning tip).
+ * Simplified: amount + message, callback when user confirms.
+ * Full invoice/success flow can be added when createZap is implemented.
+ */
+import Modal from "$lib/components/common/Modal.svelte";
+import ProfilePic from "$lib/components/common/ProfilePic.svelte";
+import { Zap } from "$lib/components/icons";
+import { getCurrentPubkey } from "$lib/stores/auth.svelte.js";
+let { isOpen = $bindable(false), target = null, publisherName = "", onzap, onclose, } = $props();
+let zapValue = $state(100);
+let message = $state("");
+let loading = $state(false);
+let error = $state("");
+const presets = [21, 100, 500, 1000, 5000, 10000];
+const isConnected = $derived(getCurrentPubkey() !== null);
+function close() {
     isOpen = false;
     zapValue = 100;
     message = "";
     error = "";
     onclose?.();
-  }
-
-  function formatSats(n: number): string {
+}
+function formatSats(n) {
     return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-  }
-
-  async function handleZap() {
-    if (loading || zapValue < 1) return;
+}
+async function handleZap() {
+    if (loading || zapValue < 1)
+        return;
     if (!isConnected) {
-      error = "Sign in to zap";
-      return;
+        error = "Sign in to zap";
+        return;
     }
     loading = true;
     error = "";
     try {
-      onzap?.({ amount: Math.round(zapValue), message: message.trim() });
-      close();
-    } catch (err) {
-      error = err instanceof Error ? err.message : "Zap failed";
-    } finally {
-      loading = false;
+        onzap?.({ amount: Math.round(zapValue), message: message.trim() });
+        close();
     }
-  }
+    catch (err) {
+        error = err instanceof Error ? err.message : "Zap failed";
+    }
+    finally {
+        loading = false;
+    }
+}
 </script>
 
 <Modal bind:open={isOpen} ariaLabel="Send a zap">

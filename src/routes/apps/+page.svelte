@@ -1,148 +1,118 @@
-<script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
-	import { browser } from '$app/environment';
-	import { page } from '$app/stores';
-	import AppSmallCard from '$lib/components/cards/AppSmallCard.svelte';
-	import SkeletonLoader from '$lib/components/common/SkeletonLoader.svelte';
-	import type { App } from '$lib/nostr';
-	import type { NostrEvent } from 'nostr-tools';
-	import { parseApp } from '$lib/nostr/models';
-	import { encodeAppNaddr } from '$lib/nostr/models';
-	import { searchApps, initNostrService } from '$lib/nostr/service';
-	import { DEFAULT_CATALOG_RELAYS } from '$lib/config';
-	import {
-		getApps,
-		getHasMore,
-		isRefreshing,
-		isLoadingMore,
-		isStoreInitialized,
-		initWithPrerenderedData,
-		scheduleRefresh,
-		loadMore
-	} from '$lib/stores/nostr.svelte';
-	import type { PageData } from './$types';
-
-	const SCROLL_THRESHOLD = 800; // pixels from bottom to trigger load
-
-	let { data }: { data: PageData } = $props();
-	const seedEvents = $derived(
-		((data as PageData & { seedEvents?: NostrEvent[] }).seedEvents ?? [])
-	);
-
-	// Reactive getters from store
-	const storeApps = $derived(getApps());
-	const storeInitialized = $derived(isStoreInitialized());
-	const hasMore = $derived(getHasMore());
-	const refreshing = $derived(isRefreshing());
-	const loadingMore = $derived(isLoadingMore());
-
-	// Search query from URL (?q=...)
-	// Guard against prerender: searchParams not available during SSR with prerender=true
-	const searchQ = $derived(browser ? ($page.url.searchParams.get('q')?.trim() ?? '') : '');
-
-	// Search state: relay-fetched results when ?q= is present
-	let searchResults = $state<App[] | null>(null);
-	let searching = $state(false);
-	let searchedQuery = $state('');
-
-	// SSR-safe display logic
-	const baseApps = $derived(storeInitialized ? storeApps : (data.apps ?? []));
-
-	// When searching, show relay results; otherwise show the paginated list
-	const displayApps = $derived(searchQ ? (searchResults ?? []) : baseApps);
-	// True while search is in flight, OR when we have a query but no results yet
-	const isSearching = $derived(searchQ !== '' && (searching || searchResults === null));
-
-	// Navigate to app detail page route (/apps/[naddr])
-	function getAppUrl(app: App): string {
-		const naddr = app.naddr || encodeAppNaddr(app.pubkey, app.dTag);
-		return `/apps/${naddr}`;
-	}
-
-	// Infinite scroll: check if near bottom
-	function shouldLoadMore(): boolean {
-		if (!browser) return false;
-		const scrollTop = window.scrollY || document.documentElement.scrollTop;
-		const scrollHeight = document.documentElement.scrollHeight;
-		const clientHeight = window.innerHeight;
-		const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-		return distanceFromBottom < SCROLL_THRESHOLD;
-	}
-
-	function handleScroll() {
-		if (!searchQ && hasMore && !loadingMore && shouldLoadMore()) {
-			loadMore();
-		}
-	}
-
-	// Run NIP-50 search against the relay when query changes
-	async function runSearch(query: string) {
-		if (!query) {
-			searchResults = null;
-			searchedQuery = '';
-			return;
-		}
-
-		// Don't re-run if already searched for this query
-		if (query === searchedQuery && searchResults !== null) return;
-
-		searching = true;
-		try {
-			await initNostrService();
-			const events = await searchApps([...DEFAULT_CATALOG_RELAYS], query, { limit: 50 });
-
-			// Deduplicate and parse
-			const seen = new Set<string>();
-			const parsed: App[] = [];
-			for (const event of events) {
-				const app = parseApp(event);
-				const key = `${app.pubkey}:${app.dTag}`;
-				if (!seen.has(key)) {
-					seen.add(key);
-					parsed.push(app);
-				}
-			}
-
-			searchResults = parsed;
-			searchedQuery = query;
-		} catch (err) {
-			console.error('[AppsPage] Search failed:', err);
-			searchResults = [];
-		} finally {
-			searching = false;
-		}
-	}
-
-	// React to searchQ changes
-	$effect(() => {
-		if (browser) {
-			runSearch(searchQ);
-		}
-	});
-
-	onMount(() => {
-		if (!browser) return;
-
-		// Use cached apps when coming from discover (or elsewhere): don't overwrite with empty.
-		// Only init when we have server data to show, or when store was never initialized.
-		if (!isStoreInitialized() || (data.apps?.length ?? 0) > 0) {
-			initWithPrerenderedData(data.apps ?? [], data.nextCursor ?? null, seedEvents);
-		}
-
-		// Add scroll listener for infinite scroll
-		window.addEventListener('scroll', handleScroll, { passive: true });
-
-		// Always schedule background refresh so we can load/update in the meantime
-		if (!searchQ) {
-			scheduleRefresh();
-		}
-	});
-
-	onDestroy(() => {
-		if (browser) {
-			window.removeEventListener('scroll', handleScroll);
-		}
-	});
+<script lang="js">
+import { onMount, onDestroy } from 'svelte';
+import { browser } from '$app/environment';
+import { page } from '$app/stores';
+import AppSmallCard from '$lib/components/cards/AppSmallCard.svelte';
+import SkeletonLoader from '$lib/components/common/SkeletonLoader.svelte';
+import { parseApp } from '$lib/nostr/models';
+import { encodeAppNaddr } from '$lib/nostr/models';
+import { searchApps, initNostrService } from '$lib/nostr/service';
+import { DEFAULT_CATALOG_RELAYS } from '$lib/config';
+import { getApps, getHasMore, isRefreshing, isLoadingMore, isStoreInitialized, initWithPrerenderedData, scheduleRefresh, loadMore } from '$lib/stores/nostr.svelte.js';
+const SCROLL_THRESHOLD = 800; // pixels from bottom to trigger load
+let { data } = $props();
+const seedEvents = $derived((data.seedEvents ?? []));
+// Reactive getters from store
+const storeApps = $derived(getApps());
+const storeInitialized = $derived(isStoreInitialized());
+const hasMore = $derived(getHasMore());
+const refreshing = $derived(isRefreshing());
+const loadingMore = $derived(isLoadingMore());
+// Search query from URL (?q=...)
+// Guard against prerender: searchParams not available during SSR with prerender=true
+const searchQ = $derived(browser ? ($page.url.searchParams.get('q')?.trim() ?? '') : '');
+// Search state: relay-fetched results when ?q= is present
+let searchResults = $state(null);
+let searching = $state(false);
+let searchedQuery = $state('');
+// SSR-safe display logic
+const baseApps = $derived(storeInitialized ? storeApps : (data.apps ?? []));
+// When searching, show relay results; otherwise show the paginated list
+const displayApps = $derived(searchQ ? (searchResults ?? []) : baseApps);
+// True while search is in flight, OR when we have a query but no results yet
+const isSearching = $derived(searchQ !== '' && (searching || searchResults === null));
+// Navigate to app detail page route (/apps/[naddr])
+function getAppUrl(app) {
+    const naddr = app.naddr || encodeAppNaddr(app.pubkey, app.dTag);
+    return `/apps/${naddr}`;
+}
+// Infinite scroll: check if near bottom
+function shouldLoadMore() {
+    if (!browser)
+        return false;
+    const scrollTop = window.scrollY || document.documentElement.scrollTop;
+    const scrollHeight = document.documentElement.scrollHeight;
+    const clientHeight = window.innerHeight;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    return distanceFromBottom < SCROLL_THRESHOLD;
+}
+function handleScroll() {
+    if (!searchQ && hasMore && !loadingMore && shouldLoadMore()) {
+        loadMore();
+    }
+}
+// Run NIP-50 search against the relay when query changes
+async function runSearch(query) {
+    if (!query) {
+        searchResults = null;
+        searchedQuery = '';
+        return;
+    }
+    // Don't re-run if already searched for this query
+    if (query === searchedQuery && searchResults !== null)
+        return;
+    searching = true;
+    try {
+        await initNostrService();
+        const events = await searchApps([...DEFAULT_CATALOG_RELAYS], query, { limit: 50 });
+        // Deduplicate and parse
+        const seen = new Set();
+        const parsed = [];
+        for (const event of events) {
+            const app = parseApp(event);
+            const key = `${app.pubkey}:${app.dTag}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                parsed.push(app);
+            }
+        }
+        searchResults = parsed;
+        searchedQuery = query;
+    }
+    catch (err) {
+        console.error('[AppsPage] Search failed:', err);
+        searchResults = [];
+    }
+    finally {
+        searching = false;
+    }
+}
+// React to searchQ changes
+$effect(() => {
+    if (browser) {
+        runSearch(searchQ);
+    }
+});
+onMount(() => {
+    if (!browser)
+        return;
+    // Use cached apps when coming from discover (or elsewhere): don't overwrite with empty.
+    // Only init when we have server data to show, or when store was never initialized.
+    if (!isStoreInitialized() || (data.apps?.length ?? 0) > 0) {
+        initWithPrerenderedData(data.apps ?? [], data.nextCursor ?? null, seedEvents);
+    }
+    // Add scroll listener for infinite scroll
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    // Always schedule background refresh so we can load/update in the meantime
+    if (!searchQ) {
+        scheduleRefresh();
+    }
+});
+onDestroy(() => {
+    if (browser) {
+        window.removeEventListener('scroll', handleScroll);
+    }
+});
 </script>
 
 <svelte:head>

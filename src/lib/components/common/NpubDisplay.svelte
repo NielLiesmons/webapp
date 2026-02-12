@@ -1,47 +1,34 @@
-<script lang="ts">
-	/**
-	 * NpubDisplay - Displays an npub with a colored profile circle
-	 */
-	import { hexToColor } from '$lib/utils/color.js';
-
-	interface Props {
-		npub?: string;
-		pubkey?: string;
-		size?: 'sm' | 'md' | 'lg';
-		truncate?: boolean;
-		className?: string;
-	}
-
-	let { npub = '', pubkey = '', size = 'md', truncate = true, className = '' }: Props = $props();
-
-	const dotSizes = {
-		sm: 6,
-		md: 8,
-		lg: 10
-	};
-
-	const fontSizes = {
-		sm: '0.75rem',
-		md: '0.875rem',
-		lg: '1rem'
-	};
-
-	const profileColor = $derived(pubkey ? hexToColor(pubkey) : { r: 128, g: 128, b: 128 });
-	const profileColorStyle = $derived(
-		`rgb(${profileColor.r}, ${profileColor.g}, ${profileColor.b})`
-	);
-
-	function formatNpub(npubStr: string, shouldTruncate: boolean): string {
-		if (!npubStr) return '';
-		if (!shouldTruncate) return npubStr;
-		if (npubStr.length < 14) return npubStr;
-		const afterPrefix = npubStr.startsWith('npub1') ? npubStr.slice(5, 8) : npubStr.slice(0, 3);
-		return `npub1${afterPrefix}......${npubStr.slice(-6)}`;
-	}
-
-	const displayNpub = $derived(formatNpub(npub, truncate));
-	const dotSize = $derived(dotSizes[size] || dotSizes.md);
-	const fontSize = $derived(fontSizes[size] || fontSizes.md);
+<script lang="js">
+/**
+ * NpubDisplay - Displays an npub with a colored profile circle
+ */
+import { hexToColor } from '$lib/utils/color.js';
+let { npub = '', pubkey = '', size = 'md', truncate = true, className = '' } = $props();
+const dotSizes = {
+    sm: 6,
+    md: 8,
+    lg: 10
+};
+const fontSizes = {
+    sm: '0.75rem',
+    md: '0.875rem',
+    lg: '1rem'
+};
+const profileColor = $derived(pubkey ? hexToColor(pubkey) : { r: 128, g: 128, b: 128 });
+const profileColorStyle = $derived(`rgb(${profileColor.r}, ${profileColor.g}, ${profileColor.b})`);
+function formatNpub(npubStr, shouldTruncate) {
+    if (!npubStr)
+        return '';
+    if (!shouldTruncate)
+        return npubStr;
+    if (npubStr.length < 14)
+        return npubStr;
+    const afterPrefix = npubStr.startsWith('npub1') ? npubStr.slice(5, 8) : npubStr.slice(0, 3);
+    return `npub1${afterPrefix}......${npubStr.slice(-6)}`;
+}
+const displayNpub = $derived(formatNpub(npub, truncate));
+const dotSize = $derived(dotSizes[size] || dotSizes.md);
+const fontSize = $derived(fontSizes[size] || fontSizes.md);
 </script>
 
 <span class="npub-display {className}" style="--dot-size: {dotSize}px; --font-size: {fontSize};">

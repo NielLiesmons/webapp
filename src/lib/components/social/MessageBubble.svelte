@@ -1,78 +1,39 @@
-<script lang="ts">
-  /**
-   * MessageBubble - A chat-like message bubble component
-   *
-   * Displays a message with:
-   * - Bottom-aligned profile picture on the left
-   * - Chat bubble on the right with asymmetric border radius
-   * - Profile name in profile color + timestamp row
-   * - Message content below
-   */
-  import { onMount } from "svelte";
-  import ProfilePic from "$lib/components/common/ProfilePic.svelte";
-  import Timestamp from "$lib/components/common/Timestamp.svelte";
-  import { Loader2 } from "lucide-svelte";
-  import {
-    hexToColor,
-    stringToColor,
-    getProfileTextColor,
-    rgbToCssString,
-  } from "$lib/utils/color.js";
-
-  interface Props {
-    pictureUrl?: string | null;
-    name?: string;
-    pubkey?: string | null;
-    timestamp?: number | string | Date | null;
-    profileUrl?: string;
-    className?: string;
-    loading?: boolean;
-    /** Show publishing spinner (e.g. until relay confirms) */
-    pending?: boolean;
-    light?: boolean;
-    children?: import("svelte").Snippet;
-    /** Optional actions in the header row (e.g. menu trigger) */
-    headerActions?: import("svelte").Snippet;
-  }
-
-  let {
-    pictureUrl = null,
-    name = "",
-    pubkey = null,
-    timestamp = null,
-    profileUrl = "",
-    className = "",
-    loading = false,
-    pending = false,
-    light = false,
-    children,
-    headerActions,
-  }: Props = $props();
-
-  let isDarkMode = $state(true);
-
-  onMount(() => {
+<script lang="js">
+/**
+ * MessageBubble - A chat-like message bubble component
+ *
+ * Displays a message with:
+ * - Bottom-aligned profile picture on the left
+ * - Chat bubble on the right with asymmetric border radius
+ * - Profile name in profile color + timestamp row
+ * - Message content below
+ */
+import { onMount } from "svelte";
+import ProfilePic from "$lib/components/common/ProfilePic.svelte";
+import Timestamp from "$lib/components/common/Timestamp.svelte";
+import { Loader2 } from "lucide-svelte";
+import { hexToColor, stringToColor, getProfileTextColor, rgbToCssString, } from "$lib/utils/color.js";
+let { pictureUrl = null, name = "", pubkey = null, timestamp = null, profileUrl = "", className = "", loading = false, pending = false, light = false, children, headerActions, } = $props();
+let isDarkMode = $state(true);
+onMount(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
     isDarkMode = mediaQuery.matches;
-
-    const handleChange = (e: MediaQueryListEvent) => (isDarkMode = e.matches);
+    const handleChange = (e) => (isDarkMode = e.matches);
     mediaQuery.addEventListener("change", handleChange);
     return () => mediaQuery.removeEventListener("change", handleChange);
-  });
-
-  function getProfileColor(pk: string | null, nm: string) {
+});
+function getProfileColor(pk, nm) {
     if (pk && pk.trim()) {
-      return hexToColor(pk);
+        return hexToColor(pk);
     }
     if (nm && nm.trim()) {
-      return stringToColor(nm);
+        return stringToColor(nm);
     }
     return { r: 128, g: 128, b: 128 };
-  }
-
-  const profileColor = $derived(getProfileColor(pubkey, name));
-  const textColor = $derived(getProfileTextColor(profileColor, isDarkMode));
-  const nameColorStyle = $derived(rgbToCssString(textColor));
+}
+const profileColor = $derived(getProfileColor(pubkey, name));
+const textColor = $derived(getProfileTextColor(profileColor, isDarkMode));
+const nameColorStyle = $derived(rgbToCssString(textColor));
 </script>
 
 <div class="message-bubble {className}">

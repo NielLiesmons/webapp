@@ -1,12 +1,11 @@
-<script lang="ts">
-  /**
-   * BubbleSkeleton - 12 placeholder rows: profile pic circle + bubble (varying widths/heights).
-   * No text lines. Used while comments/zaps are loading.
-   */
-  import SkeletonLoader from "$lib/components/common/SkeletonLoader.svelte";
-
-  /** Varying bubble widths (min-width %) and heights (px) – kept relatively narrow */
-  const ROWS: { bubbleWidth: number; bubbleHeight: number }[] = [
+<script lang="js">
+/**
+ * BubbleSkeleton - 12 placeholder rows: profile pic circle + bubble (varying widths/heights).
+ * No text lines. Used while comments/zaps are loading.
+ */
+import SkeletonLoader from "$lib/components/common/SkeletonLoader.svelte";
+/** Varying bubble widths (min-width %) and heights (px) – kept relatively narrow */
+const ROWS = [
     { bubbleWidth: 48, bubbleHeight: 52 },
     { bubbleWidth: 38, bubbleHeight: 40 },
     { bubbleWidth: 55, bubbleHeight: 58 },
@@ -19,13 +18,8 @@
     { bubbleWidth: 48, bubbleHeight: 44 },
     { bubbleWidth: 44, bubbleHeight: 48 },
     { bubbleWidth: 54, bubbleHeight: 52 },
-  ];
-
-  interface Props {
-    className?: string;
-  }
-
-  let { className = "" }: Props = $props();
+];
+let { className = "" } = $props();
 </script>
 
 <div class="bubble-skeleton-list {className}" style="opacity: 0.33;">

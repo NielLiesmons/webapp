@@ -1,17 +1,10 @@
-<script lang="ts">
-  /**
-   * OnboardingBuildingModal - Shown after SpinKeyModal in the Get started flow
-   * to inform users that the full onboarding flow is still being built.
-   */
-  import Modal from "$lib/components/common/Modal.svelte";
-
-  interface Props {
-    open?: boolean;
-    /** z-index for the modal (use 56+ when shown after SpinKeyModal) */
-    zIndex?: number;
-  }
-
-  let { open = $bindable(false), zIndex = 56 }: Props = $props();
+<script lang="js">
+/**
+ * OnboardingBuildingModal - Shown after SpinKeyModal in the Get started flow
+ * to inform users that the full onboarding flow is still being built.
+ */
+import Modal from "$lib/components/common/Modal.svelte";
+let { open = $bindable(false), zIndex = 56 } = $props();
 </script>
 
 <Modal bind:open ariaLabel="Onboarding in progress" {zIndex}>

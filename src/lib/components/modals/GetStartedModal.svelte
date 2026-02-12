@@ -1,74 +1,63 @@
-<script lang="ts">
-  /**
-   * GetStartedModal - Initial onboarding modal for Zapstore
-   *
-   * Allows users to either:
-   * 1. Create a new Nostr key (proceeds to SpinKeyModal)
-   * 2. Sign in with existing key (uses browser extension)
-   */
-  import Modal from "$lib/components/common/Modal.svelte";
-  import InputTextField from "$lib/components/common/InputTextField.svelte";
-  import { Nostr } from "$lib/components/icons";
-  import { connect } from "$lib/stores/auth.svelte";
-
-  interface Props {
-    open?: boolean;
-    onstart?: (event: { profileName: string }) => void;
-    onconnected?: () => void;
-  }
-
-  let { open = $bindable(false), onstart, onconnected }: Props = $props();
-
-  let profileName = $state("");
-  let inputElement = $state<HTMLInputElement | null>(null);
-  let isConnecting = $state(false);
-  let error = $state<string | null>(null);
-
-  // Focus input when modal opens
-  $effect(() => {
+<script lang="js">
+/**
+ * GetStartedModal - Initial onboarding modal for Zapstore
+ *
+ * Allows users to either:
+ * 1. Create a new Nostr key (proceeds to SpinKeyModal)
+ * 2. Sign in with existing key (uses browser extension)
+ */
+import Modal from "$lib/components/common/Modal.svelte";
+import InputTextField from "$lib/components/common/InputTextField.svelte";
+import { Nostr } from "$lib/components/icons";
+import { connect } from "$lib/stores/auth.svelte.js";
+let { open = $bindable(false), onstart, onconnected } = $props();
+let profileName = $state("");
+let inputElement = $state(null);
+let isConnecting = $state(false);
+let error = $state(null);
+// Focus input when modal opens
+$effect(() => {
     if (open && inputElement) {
-      setTimeout(() => inputElement?.focus(), 150);
+        setTimeout(() => inputElement?.focus(), 150);
     }
-  });
-
-  // Clear state when modal closes
-  $effect(() => {
+});
+// Clear state when modal closes
+$effect(() => {
     if (!open) {
-      profileName = "";
-      error = null;
+        profileName = "";
+        error = null;
     }
-  });
-
-  function handleStart() {
+});
+function handleStart() {
     if (profileName.trim()) {
-      onstart?.({ profileName: profileName.trim() });
+        onstart?.({ profileName: profileName.trim() });
     }
-  }
-
-  function handleKeydown(e: { key: string; event: KeyboardEvent }) {
+}
+function handleKeydown(e) {
     if (e.key === "Enter" && profileName.trim()) {
-      handleStart();
+        handleStart();
     }
-  }
-
-  async function handleExistingKey() {
+}
+async function handleExistingKey() {
     isConnecting = true;
     error = null;
-
     try {
-      const success = await connect();
-      if (success) {
-        open = false;
-        onconnected?.();
-      } else {
-        error = "Failed to connect to Nostr extension";
-      }
-    } catch (err) {
-      error = err instanceof Error ? err.message : "Failed to connect to Nostr extension";
-    } finally {
-      isConnecting = false;
+        const success = await connect();
+        if (success) {
+            open = false;
+            onconnected?.();
+        }
+        else {
+            error = "Failed to connect to Nostr extension";
+        }
     }
-  }
+    catch (err) {
+        error = err instanceof Error ? err.message : "Failed to connect to Nostr extension";
+    }
+    finally {
+        isConnecting = false;
+    }
+}
 </script>
 
 <Modal bind:open ariaLabel="Get started with Zapstore">

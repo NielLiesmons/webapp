@@ -1,26 +1,12 @@
-<script lang="ts">
-	import { formatDisplayDate } from '$lib/date';
-	import type { Component } from 'svelte';
-
-	interface PageData {
-		content: Component;
-		metadata: {
-			title?: string;
-			description?: string;
-			author?: string;
-			date?: string;
-			draft?: boolean;
-		};
-	}
-
-	let { data }: { data: PageData } = $props();
-
-	let title = $derived(data.metadata?.title || 'Blog Post');
-	let description = $derived(data.metadata?.description || '');
-	let author = $derived(data.metadata?.author || 'Zapstore');
-	let date = $derived(data.metadata?.date || '');
-	let draft = $derived(data.metadata?.draft || false);
-	let Content = $derived(data.content);
+<script lang="js">
+import { formatDisplayDate } from '$lib/date';
+let { data } = $props();
+let title = $derived(data.metadata?.title || 'Blog Post');
+let description = $derived(data.metadata?.description || '');
+let author = $derived(data.metadata?.author || 'Zapstore');
+let date = $derived(data.metadata?.date || '');
+let draft = $derived(data.metadata?.draft || false);
+let Content = $derived(data.content);
 </script>
 
 <svelte:head>

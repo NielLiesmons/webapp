@@ -1,58 +1,39 @@
-<script lang="ts">
-	import { onMount } from 'svelte';
-	import { browser } from '$app/environment';
-	import { ReleaseCard } from '$lib/components';
-	import type { App, Release } from '$lib/nostr';
-	import { queryStoreOne, watchEvent, parseRelease, initNostrService } from '$lib/nostr';
-	import { EVENT_KINDS, DEFAULT_CATALOG_RELAYS, PLATFORM_FILTER } from '$lib/config';
-	import { renderMarkdown } from '$lib/utils/markdown';
-
-	interface Props {
-		app: App;
-		initialRelease?: Release | null;
-	}
-
-	let { app, initialRelease = null }: Props = $props();
-
-	// Local state (set from initialRelease in onMount to avoid capturing stale reference)
-	let latestRelease = $state<Release | null>(null);
-	let refreshing = $state(false);
-
-	onMount(() => {
-		if (!browser || !app) return;
-
-		latestRelease = initialRelease ?? null;
-		const aTagValue = `${EVENT_KINDS.APP}:${app.pubkey}:${app.dTag}`;
-
-		// Sync: query EventStore immediately (release is already there from listing)
-		const cachedRelease = queryStoreOne({ kinds: [EVENT_KINDS.RELEASE], '#a': [aTagValue], ...PLATFORM_FILTER });
-		if (cachedRelease) {
-			latestRelease = parseRelease(cachedRelease);
-		}
-
-		// Background refresh from relays
-		const schedule =
-			'requestIdleCallback' in window
-				? window.requestIdleCallback
-				: (cb: () => void) => setTimeout(cb, 1);
-
-		schedule(async () => {
-			await initNostrService();
-
-			refreshing = true;
-
-			watchEvent(
-				{ kinds: [EVENT_KINDS.RELEASE], '#a': [aTagValue], ...PLATFORM_FILTER },
-				{ relays: DEFAULT_CATALOG_RELAYS },
-				(freshEvent) => {
-					if (freshEvent) {
-						latestRelease = parseRelease(freshEvent);
-					}
-					refreshing = false;
-				}
-			);
-		});
-	});
+<script lang="js">
+import { onMount } from 'svelte';
+import { browser } from '$app/environment';
+import { ReleaseCard } from '$lib/components';
+import { queryStoreOne, watchEvent, parseRelease, initNostrService } from '$lib/nostr';
+import { EVENT_KINDS, DEFAULT_CATALOG_RELAYS, PLATFORM_FILTER } from '$lib/config';
+import { renderMarkdown } from '$lib/utils/markdown';
+let { app, initialRelease = null } = $props();
+// Local state (set from initialRelease in onMount to avoid capturing stale reference)
+let latestRelease = $state(null);
+let refreshing = $state(false);
+onMount(() => {
+    if (!browser || !app)
+        return;
+    latestRelease = initialRelease ?? null;
+    const aTagValue = `${EVENT_KINDS.APP}:${app.pubkey}:${app.dTag}`;
+    // Sync: query EventStore immediately (release is already there from listing)
+    const cachedRelease = queryStoreOne({ kinds: [EVENT_KINDS.RELEASE], '#a': [aTagValue], ...PLATFORM_FILTER });
+    if (cachedRelease) {
+        latestRelease = parseRelease(cachedRelease);
+    }
+    // Background refresh from relays
+    const schedule = 'requestIdleCallback' in window
+        ? window.requestIdleCallback
+        : (cb) => setTimeout(cb, 1);
+    schedule(async () => {
+        await initNostrService();
+        refreshing = true;
+        watchEvent({ kinds: [EVENT_KINDS.RELEASE], '#a': [aTagValue], ...PLATFORM_FILTER }, { relays: DEFAULT_CATALOG_RELAYS }, (freshEvent) => {
+            if (freshEvent) {
+                latestRelease = parseRelease(freshEvent);
+            }
+            refreshing = false;
+        });
+    });
+});
 </script>
 
 <article class="app-detail">

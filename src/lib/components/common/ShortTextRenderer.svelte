@@ -1,61 +1,31 @@
-<script lang="ts">
-  /**
-   * ShortTextRenderer - Renders short text with mentions, custom emoji, and nostr refs.
-   * Use in comments, zap messages, profile descriptions, etc.
-   * Matches ShortTextInput display: profile-colored @mentions, inline emoji, block cards for nevent/naddr.
-   */
-  import { onMount } from "svelte";
-  import {
-    parseShortText,
-    type ShortTextSegment,
-    type ShortTextInput,
-  } from "$lib/utils/short-text-parser.js";
-  import {
-    hexToColor,
-    getProfileTextColor,
-    rgbToCssString,
-  } from "$lib/utils/color.js";
-
-  interface Props {
-    /** Plain text content (may include nostr:..., :shortcode:) */
-    content: string;
-    /** Custom emoji shortcode -> url (from event tags or submit payload) */
-    emojiTags?: { shortcode: string; url: string }[];
-    /** Optional: resolve pubkey to display name (e.g. from profile cache) */
-    resolveMentionLabel?: (pubkey: string) => string | undefined;
-    /** Root class name */
-    class?: string;
-  }
-
-  let {
-    content = "",
-    emojiTags = [],
-    resolveMentionLabel,
-    class: className = "",
-  }: Props = $props();
-
-  let isDarkMode = $state(true);
-
-  onMount(() => {
+<script lang="js">
+/**
+ * ShortTextRenderer - Renders short text with mentions, custom emoji, and nostr refs.
+ * Use in comments, zap messages, profile descriptions, etc.
+ * Matches ShortTextInput display: profile-colored @mentions, inline emoji, block cards for nevent/naddr.
+ */
+import { onMount } from "svelte";
+import { parseShortText, } from "$lib/utils/short-text-parser.js";
+import { hexToColor, getProfileTextColor, rgbToCssString, } from "$lib/utils/color.js";
+let { content = "", emojiTags = [], resolveMentionLabel, class: className = "", } = $props();
+let isDarkMode = $state(true);
+onMount(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     isDarkMode = mq.matches;
-    const handle = (e: MediaQueryListEvent) => (isDarkMode = e.matches);
+    const handle = (e) => (isDarkMode = e.matches);
     mq.addEventListener("change", handle);
     return () => mq.removeEventListener("change", handle);
-  });
-
-  const input: ShortTextInput = $derived({ text: content, emojiTags });
-  const segments: ShortTextSegment[] = $derived(parseShortText(input));
-
-  function mentionLabel(segment: Extract<ShortTextSegment, { type: "mention" }>): string {
+});
+const input = $derived({ text: content, emojiTags });
+const segments = $derived(parseShortText(input));
+function mentionLabel(segment) {
     return resolveMentionLabel?.(segment.pubkey) ?? segment.pubkey.slice(0, 8);
-  }
-
-  function mentionStyle(pubkey: string): string {
+}
+function mentionStyle(pubkey) {
     const rgb = hexToColor(pubkey);
     const textRgb = getProfileTextColor(rgb, isDarkMode);
     return `color: ${rgbToCssString(textRgb)}`;
-  }
+}
 </script>
 
 <div class="short-text-renderer {className}" data-short-text>

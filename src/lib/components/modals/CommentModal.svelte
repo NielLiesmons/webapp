@@ -1,89 +1,43 @@
-<script lang="ts">
-  /**
-   * CommentModal - Bottom sheet for writing a comment with TipTap (mentions + emojis)
-   */
-  import { fly } from "svelte/transition";
-  import { cubicOut } from "svelte/easing";
-  import ShortTextInput from "$lib/components/common/ShortTextInput.svelte";
-
-  type ProfileHit = { pubkey: string; name?: string; displayName?: string; picture?: string; nip05?: string };
-  type EmojiHit = { shortcode: string; url: string; source: string };
-
-  interface CommentTarget {
-    name?: string;
-    pubkey?: string;
-    dTag?: string;
-    id?: string;
-  }
-
-  interface Props {
-    isOpen?: boolean;
-    target?: CommentTarget | null;
-    placeholder?: string;
-    searchProfiles?: (query: string) => Promise<ProfileHit[]>;
-    searchEmojis?: (query: string) => Promise<EmojiHit[]>;
-    onsubmit?: (event: {
-      text: string;
-      emojiTags: { shortcode: string; url: string }[];
-      mentions: string[];
-      target: CommentTarget | null;
-    }) => void;
-    onclose?: () => void;
-  }
-
-  let {
-    isOpen = $bindable(false),
-    target = null,
-    placeholder = "Write a comment...",
-    searchProfiles = async () => [],
-    searchEmojis = async () => [],
-    onsubmit,
-    onclose,
-  }: Props = $props();
-
-  interface ShortTextInputRef {
-    clear: () => void;
-    focus: () => void;
-    getContent: () => string;
-    getSerializedContent: () => { text: string; emojiTags: { shortcode: string; url: string }[]; mentions: string[] };
-    isEmpty: () => boolean;
-  }
-  let textInput = $state<ShortTextInputRef | null>(null);
-  let submitting = $state(false);
-
-  function close() {
+<script lang="js">
+/**
+ * CommentModal - Bottom sheet for writing a comment with TipTap (mentions + emojis)
+ */
+import { fly } from "svelte/transition";
+import { cubicOut } from "svelte/easing";
+import ShortTextInput from "$lib/components/common/ShortTextInput.svelte";
+let { isOpen = $bindable(false), target = null, placeholder = "Write a comment...", searchProfiles = async () => [], searchEmojis = async () => [], onsubmit, onclose, } = $props();
+let textInput = $state(null);
+let submitting = $state(false);
+function close() {
     isOpen = false;
     onclose?.();
-  }
-
-  async function handleSubmit(event: {
-    text: string;
-    emojiTags: { shortcode: string; url: string }[];
-    mentions: string[];
-  }) {
-    if (submitting || !event.text.trim()) return;
+}
+async function handleSubmit(event) {
+    if (submitting || !event.text.trim())
+        return;
     submitting = true;
     try {
-      onsubmit?.({ text: event.text, emojiTags: event.emojiTags ?? [], mentions: event.mentions, target });
-      textInput?.clear();
-      close();
-    } catch (err) {
-      console.error("Failed to submit comment:", err);
-    } finally {
-      submitting = false;
+        onsubmit?.({ text: event.text, emojiTags: event.emojiTags ?? [], mentions: event.mentions, target });
+        textInput?.clear();
+        close();
     }
-  }
-
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") close();
-  }
-
-  $effect(() => {
+    catch (err) {
+        console.error("Failed to submit comment:", err);
+    }
+    finally {
+        submitting = false;
+    }
+}
+function handleKeydown(e) {
+    if (e.key === "Escape")
+        close();
+}
+$effect(() => {
     if (isOpen && textInput) {
-      const t = setTimeout(() => textInput?.focus(), 100);
-      return () => clearTimeout(t);
+        const t = setTimeout(() => textInput?.focus(), 100);
+        return () => clearTimeout(t);
     }
-  });
+});
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
