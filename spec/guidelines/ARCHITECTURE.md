@@ -1,5 +1,12 @@
 # Zapstore Webapp — Architecture
 
+## Goals (non-negotiable)
+
+- **Minimize loading states and skeletons.** Avoid the classic SPA pattern of spinners or skeletons everywhere. They have a place (e.g. true first-ever empty state, explicit search-in-flight) but must be minimal. First paint should show **real content** from local data or prerender whenever possible.
+- **Landing pages (marketing) are fully prerendered.** No blocking on data; static or build-time data only.
+- **UI always updates reactively.** When local data or server/background data changes, the UI MUST update without full page reload. Use reactive state (e.g. Svelte runes, stores) so new data flows into the view immediately.
+- **Full PWA.** The app is a full Progressive Web App: valid web app manifest, compliant service worker (install, fetch, activate, scope), and offline support for cached routes and local data. No half-measures.
+
 ## Core Principle: Local-First
 
 **Local-first is fundamental.** The UI always renders from local data first.
@@ -51,10 +58,12 @@ See [Applesauce Caching Docs](https://applesauce.build/storage/caching/) for pat
 └─────────────────────────────────────────────────────────────┘
 ```
 
-- **EventStore**: In-memory, synchronous — UI derives state from here
-- **IndexedDB**: Persistent local cache — loaded on app init
-- **persistEventsToCache**: Non-blocking writes to IndexedDB
-- **RelayPool**: Background refresh only, conditional on online status
+- **EventStore**: In-memory, synchronous — UI derives state from here. Single source of truth for in-memory state.
+- **IndexedDB**: Persistent mirror of EventStore — all writes go through the store (store.add) then persistEventsToCache syncs to IDB. Never write to IndexedDB without going through EventStore. On init, load from IDB into the store so the two layers stay in sync. No separate client path that bypasses the store.
+- **persistEventsToCache**: Non-blocking writes to IndexedDB; every event added to the store is persisted so return visits and offline have the same data.
+- **RelayPool**: Background refresh only, conditional on online status.
+
+**Applesauce for social content:** Islands of social content (comments, zaps, profiles) use the same Applesauce pattern: watchComments, watchZaps, fetchComments, fetchZaps all use EventStore + RelayPool and persistEventsToCache. They return sync results from the store, then refresh in the background and update the store; the UI reacts. No separate cache for social—everything flows through EventStore → IndexedDB.
 
 ### Query Interface (Applesauce Pattern)
 
@@ -150,9 +159,13 @@ Every render path prioritizes local data:
 
 For SEO and first-visit performance:
 
-1. `+page.server.ts` fetches from relays
+1. `+page.server.ts` fetches from relays (or reads from server SQLite when configured)
 2. HTML generated with full content
 3. Static files deployed to CDN
+
+**Landing pages (marketing):** Fully prerendered; no runtime data dependency. No loading states.
+
+**Prerender scope:** Any route that has no client-side interactivity and no runtime data dependency can be fully prerendered (e.g. landing, static marketing, docs). Use prerender where possible so first paint shows real content without loading states.
 
 ## URLs and routing
 
@@ -180,23 +193,35 @@ Catalogs are Nostr relays that hold app events.
 
 ## Storage
 
-### IndexedDB
+### IndexedDB (client cache)
 - Nostr events cached via `persistEventsToCache`
-- Loaded into EventStore on app init
+- Loaded into EventStore on app init so the **hot path is in-memory** (sync). IndexedDB is used for persistence and cold load.
+- **Speed:** IndexedDB is asynchronous; typical indexed reads are on the order of 1–10 ms for small/medium datasets. For local-first, the important latency is **cold start**: load from IndexedDB into EventStore once, then all reads are sync from memory. That is acceptable; no browser standard offers faster **persistent** structured storage. Alternatives: **in-memory only** (no persistence across reload), **Cache API** (good for response bodies, not queryable event stores). For structured, queryable, persistent client data, IndexedDB is the right choice.
+- **Indices:** Use indices to keep queries fast: `event.kind`, `event.created_at`, `event.pubkey`, and compound `(event.kind, event.created_at)` where supported. Avoid full table scans; filter by index first then apply remaining filters in memory.
 
 ### localStorage
 - User preferences
 - Configured catalog relays
 - Signed-in pubkey
 
+### Seeding the client cache
+
+- **Source:** Data is seeded from the **server response** (SSR/load). The server reads from SQLite (read-only) and embeds or streams data into the page so the client can hydrate and fill EventStore + IndexedDB.
+- **Tradeoffs:** Prefer **normalized or slim payloads** for list/detail views (e.g. `{ id, name, icon, description, … }`) to keep payloads small and parse cheap. **Full Nostr events** are fetched only when the user opens a view that needs them—e.g. the **Details** tab that shows raw event JSON. Until then, do not embed or request full events; maximize performance by deferring full-event load to that moment.
+- **Flow:** Server sends data in the same response as HTML (e.g. SvelteKit load). Client receives it, merges into EventStore, and persists to IndexedDB in the background. Subsequent visits read from IndexedDB → EventStore for instant paint, then optionally request fresh data from the server again.
 
 ## Service Worker (PWA)
 
-Enables the local-first offline experience:
+The app is a **full PWA** with a compliant service worker and manifest.
 
-- **Install**: Precaches all static assets (JS, CSS, HTML)
-- **Fetch**: Cache-first for assets, network-first for pages
-- **Offline**: Serves cached shell, app uses IndexedDB for data
+- **Manifest:** Valid `manifest.json` (name, short_name, start_url, display, icons, theme_color, etc.) linked from the app. Ensures installability and standalone display.
+- **Service worker:**
+  - **Install:** Precaches static assets (JS, CSS, HTML) and optionally critical data URLs. Uses versioned cache names; skipWaiting so new SW activates promptly.
+  - **Activate:** Cleans old caches; claims clients so the new SW controls the page immediately.
+  - **Fetch:** Cache-first for precached assets (including cross-origin CDN assets when used); network-first for document requests with cache fallback for offline. No requests block first paint for content that can be served from cache.
+- **Offline:** The app must be **fully working offline**: cached shell and routes serve from cache; app uses IndexedDB for all data; no network required for previously visited content. Offline banner or indicator is shown when navigator.onLine is false.
+- **Background refresh indicator:** When data is refreshing from the server in the background, a very subtle indicator (e.g. small dot or bar) may be shown so the user knows fresh data is being fetched without implying loading or blocking.
+- **Scope:** Service worker scope is the app origin (apex). Assets may be served from a CDN; the SW still controls the page and can cache CDN URLs for offline.
 
 ## File Structure
 

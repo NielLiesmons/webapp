@@ -8,6 +8,7 @@
 import { initNostrService, fetchAppStacks, fetchEvents } from '$lib/nostr/service';
 import { parseAppStack, parseApp, type AppStack, type App } from '$lib/nostr/models';
 import { DEFAULT_CATALOG_RELAYS, EVENT_KINDS, PLATFORM_FILTER } from '$lib/config';
+import { setBackgroundRefreshing } from '$lib/stores/refresh-indicator.svelte';
 
 const PAGE_SIZE = 20;
 
@@ -106,6 +107,7 @@ export async function refreshStacksFromRelays(): Promise<void> {
 	if (typeof window === 'undefined' || !navigator.onLine) return;
 
 	refreshing = true;
+	setBackgroundRefreshing(true);
 
 	try {
 		await initNostrService();
@@ -143,6 +145,7 @@ export async function refreshStacksFromRelays(): Promise<void> {
 	} finally {
 		initialized = true;
 		refreshing = false;
+		setBackgroundRefreshing(false);
 	}
 }
 

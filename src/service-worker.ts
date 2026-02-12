@@ -149,16 +149,19 @@ sw.addEventListener('fetch', (event) => {
 					}
 					return response;
 				})
-				.catch(() => {
-					// Offline: serve from cache
-					return caches.match(event.request).then(
-						(cached) =>
-							cached ||
-							new Response('Offline', {
-								status: 503,
-								statusText: 'Service Unavailable'
-							})
-					);
+				.catch(async () => {
+					// Offline: try cache by request URL, then by pathname (precache keys may be path-only), then app shell
+					const cached =
+						(await caches.match(event.request)) ??
+						(await caches.match(url.pathname)) ??
+						(await caches.match(sw.location.origin + url.pathname)) ??
+						(await caches.match('/')) ??
+						(await caches.match(sw.location.origin + '/'));
+					if (cached) return cached;
+					return new Response('Offline', {
+						status: 503,
+						statusText: 'Service Unavailable'
+					});
 				})
 		);
 		return;

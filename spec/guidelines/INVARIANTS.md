@@ -10,9 +10,10 @@ These are the most critical invariants. Local-first is not optional.
 - **UI NEVER waits for network** — always render from local data first.
 - **IndexedDB is the source of truth** for the UI, not relays.
 - **Relay fetches are background-only** — they update local cache, UI reacts.
-- **Offline mode is fully functional** — all cached data accessible.
+- **Offline mode is fully functional** — the app works fully offline; all cached data and routes remain accessible without network.
 - **Online status determines relay behavior** — skip fetches when offline.
 - Network failures degrade gracefully with clear feedback (offline banner).
+- **UI MUST update reactively** when local or server/background data changes—no full page reload required. Use reactive state so new data flows into the view immediately.
 - Fresh data updates UI reactively without blocking or reload.
 
 ## Performance
@@ -21,6 +22,7 @@ These are the most critical invariants. Local-first is not optional.
 - Time to Interactive (TTI) must be under 3 seconds on 3G.
 - Pre-rendered pages must not require JavaScript for initial content.
 - Client-side navigation must feel instant (<100ms perceived).
+- **Loading states and skeletons must be minimal.** First paint must show real content from local data or prerender whenever possible. Use loading spinners or skeletons only where necessary (e.g. true first-ever empty state, explicit search-in-flight). Avoid the classic SPA pattern of loading/skeletons everywhere.
 
 ## Relay Fetching
 
@@ -50,7 +52,7 @@ These are the most critical invariants. Local-first is not optional.
 - All async work must be cancellable and lifecycle-safe (cleanup on unmount).
 - All data-dependent UI must have explicit states: loading, empty, success, error.
 - Silent failures are unacceptable—users must know when something fails.
-- Loading states must use skeletons to preserve layout.
+- Where a loading state is required, use skeletons to preserve layout; but prefer showing real content from cache so loading states are rare.
 
 ## Async Discipline
 
@@ -89,3 +91,10 @@ These are the most critical invariants. Local-first is not optional.
 - All app pages are prerendered at build time via SvelteKit.
 - Prerendered HTML must be valid and complete.
 - Build failures must not deploy broken pages.
+
+## PWA
+
+- The app MUST be a full Progressive Web App: valid web app manifest and a compliant service worker.
+- Manifest: name, short_name, start_url, display, icons, theme_color (and any required fields) must be present and correct.
+- Service worker: must handle install (precache), activate (clean old caches, claim), and fetch (cache-first for assets, network-first with cache fallback for documents). Scope must be the app origin.
+- **Fully working offline:** Cached routes and local data (IndexedDB) must allow the app to function fully offline—no network required for previously visited content. Show an offline indicator when appropriate.

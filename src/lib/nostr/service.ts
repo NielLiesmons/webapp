@@ -67,10 +67,18 @@ async function getDb(): Promise<IDBPDatabase> {
 					const store = database.createObjectStore('events', { keyPath: 'id' });
 					store.createIndex('cachedAt', 'cachedAt');
 					store.createIndex('kind', 'event.kind');
-				} else if (oldVersion > 0 && oldVersion < 3) {
+					store.createIndex('created_at', 'event.created_at');
+					store.createIndex('pubkey', 'event.pubkey');
+					store.createIndex('kind_created', ['event.kind', 'event.created_at']);
+				} else {
 					const store = transaction.objectStore('events');
-					if (!store.indexNames.contains('kind')) {
+					if (oldVersion < 3 && !store.indexNames.contains('kind')) {
 						store.createIndex('kind', 'event.kind');
+					}
+					if (oldVersion < 4) {
+						if (!store.indexNames.contains('created_at')) store.createIndex('created_at', 'event.created_at');
+						if (!store.indexNames.contains('pubkey')) store.createIndex('pubkey', 'event.pubkey');
+						if (!store.indexNames.contains('kind_created')) store.createIndex('kind_created', ['event.kind', 'event.created_at']);
 					}
 				}
 			}

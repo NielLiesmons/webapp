@@ -13,6 +13,7 @@
 import { initNostrService, fetchAppsByReleases } from '$lib/nostr/service';
 import { parseApp, type App } from '$lib/nostr/models';
 import { DEFAULT_CATALOG_RELAYS } from '$lib/config';
+import { setBackgroundRefreshing } from '$lib/stores/refresh-indicator.svelte';
 
 const PAGE_SIZE = 24; // Fetch extra to account for duplicates, ensures ~16+ unique apps
 
@@ -97,6 +98,7 @@ export async function refreshFromRelays(): Promise<void> {
 	if (typeof window === 'undefined' || !navigator.onLine) return;
 
 	refreshing = true;
+	setBackgroundRefreshing(true);
 
 	try {
 		await initNostrService();
@@ -135,6 +137,7 @@ export async function refreshFromRelays(): Promise<void> {
 		console.error('[NostrStore] Refresh failed:', err);
 	} finally {
 		refreshing = false;
+		setBackgroundRefreshing(false);
 	}
 }
 

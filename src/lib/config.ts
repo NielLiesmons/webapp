@@ -25,7 +25,7 @@ export const EOSE_TIMEOUT = 2500;
 
 // IndexedDB configuration
 export const IDB_NAME = 'zapstore-webapp';
-export const IDB_VERSION = 3;
+export const IDB_VERSION = 4;
 
 // Event kinds
 export const EVENT_KINDS = {

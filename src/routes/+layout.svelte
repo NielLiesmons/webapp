@@ -5,6 +5,7 @@
 	import { initAuth } from '$lib/stores/auth.svelte';
 	import { initCatalogs } from '$lib/stores/catalogs.svelte';
 	import { initOnlineStatus, isOnline } from '$lib/stores/online.svelte';
+	import { isBackgroundRefreshing } from '$lib/stores/refresh-indicator.svelte';
 	import { initNostrService } from '$lib/nostr';
 	import { startProfileSearchBackground } from '$lib/services/profile-search';
 	import Header from '$lib/components/layout/Header.svelte';
@@ -14,6 +15,7 @@
 
 	let { children } = $props();
 	let online = $derived(isOnline());
+	let backgroundRefreshing = $derived(isBackgroundRefreshing());
 
 	const path = $derived($page.url.pathname as string);
 
@@ -81,6 +83,10 @@
 	<div class="relative z-10 flex flex-col min-h-screen">
 		<NavigationProgress />
 
+		{#if backgroundRefreshing}
+			<div class="refresh-indicator" aria-hidden="true" title="Updating…"></div>
+		{/if}
+
 		{#if isReachKit}
 			{@render children()}
 		{:else}
@@ -128,5 +134,22 @@
 
 	.offline-icon {
 		font-size: 1rem;
+	}
+
+	.refresh-indicator {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 2px;
+		background: linear-gradient(90deg, transparent, hsl(var(--primary) / 0.6), transparent);
+		animation: refresh-pulse 1.2s ease-in-out infinite;
+		z-index: 9999;
+		pointer-events: none;
+	}
+
+	@keyframes refresh-pulse {
+		0%, 100% { opacity: 0.4; }
+		50% { opacity: 1; }
 	}
 </style>
