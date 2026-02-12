@@ -222,20 +222,20 @@
 	/* 3-column grid for apps */
 	.app-grid {
 		display: grid;
-		grid-template-columns: 1fr;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 1.25rem;
 	}
 
 	@media (min-width: 640px) {
 		.app-grid {
-			grid-template-columns: repeat(2, 1fr);
+			grid-template-columns: repeat(2, minmax(0, 1fr));
 			gap: 1.5rem;
 		}
 	}
 
 	@media (min-width: 1024px) {
 		.app-grid {
-			grid-template-columns: repeat(3, 1fr);
+			grid-template-columns: repeat(3, minmax(0, 1fr));
 			gap: 2rem;
 		}
 	}
@@ -243,6 +243,7 @@
 	.app-item {
 		padding: 0.75rem 0;
 		border-bottom: 1px solid hsl(var(--border) / 0.5);
+		min-width: 0;
 	}
 
 	.app-item:last-child {
