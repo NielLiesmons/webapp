@@ -36,7 +36,7 @@
   import Modal from "$lib/components/common/Modal.svelte";
   import DownloadModal from "$lib/components/common/DownloadModal.svelte";
   import WelcomeModal from "$lib/components/modals/WelcomeModal.svelte";
-  import { createSearchProfilesFunction, ZAPSTORE_PUBKEY, zapstoreProfileStore } from "$lib/services/profile-search";
+  import { createSearchProfilesFunction, ZAPSTORE_PUBKEY } from "$lib/services/profile-search";
   import { createSearchEmojisFunction } from "$lib/services/emoji-search";
   import { getCurrentPubkey, getIsSignedIn, signEvent } from "$lib/stores/auth.svelte";
   import { renderMarkdown } from "$lib/utils/markdown";
@@ -112,25 +112,6 @@
       pubkey: "78ce6faa72264387284e647ba6938995735ec8c7d5c5a65737e55f2fe2202182",
     },
   ];
-
-  // Zapstore profile from store (same as DetailHeader)
-  let zapstoreProfile = $state<{ picture: string; name: string } | null>(null);
-  $effect(() => {
-    const unsub = zapstoreProfileStore.subscribe((v) => (zapstoreProfile = v));
-    return unsub;
-  });
-  const isZapstoreCatalog = $derived(
-    catalogs.length > 0 &&
-      catalogs[0]?.pubkey &&
-      ZAPSTORE_PUBKEY &&
-      (catalogs[0].pubkey.toLowerCase() === ZAPSTORE_PUBKEY.toLowerCase() ||
-        (catalogs[0].name ?? '').toLowerCase() === 'zapstore')
-  );
-  const effectiveCatalogs = $derived(
-    isZapstoreCatalog && zapstoreProfile
-      ? [{ ...catalogs[0], pictureUrl: zapstoreProfile.picture, name: zapstoreProfile.name }]
-      : catalogs
-  );
 
   // Derived values
   const truncatedNpub = $derived(
@@ -327,6 +308,40 @@
     }
   }
 
+  /** Merge zaps with comments into the comments feed so they show in both Comments and Zaps tabs */
+  function mergeZapsIntoComments() {
+    const zapsWithComments = zaps.filter((z) => z.comment?.trim());
+    const existingCommentIds = new Set(comments.map((c) => c.id));
+    
+    for (const zap of zapsWithComments) {
+      if (!existingCommentIds.has(zap.id)) {
+        // Convert zap with comment to comment format
+        comments.push({
+          id: zap.id,
+          pubkey: zap.senderPubkey || '',
+          content: zap.comment,
+          contentHtml: zap.comment.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>'),
+          emojiTags: zap.emojiTags || [],
+          createdAt: zap.createdAt,
+          parentId: zap.zappedEventId || null,
+          isReply: !!zap.zappedEventId,
+          npub: zap.senderPubkey ? nip19.npubEncode(zap.senderPubkey) : undefined,
+        });
+        
+        // Add sender profile if not already loaded
+        if (zap.senderPubkey && !profiles[zap.senderPubkey]) {
+          const prof = zapperProfiles.get(zap.senderPubkey);
+          if (prof) {
+            profiles[zap.senderPubkey] = prof;
+          }
+        }
+      }
+    }
+    
+    // Sort comments by createdAt (newest first)
+    comments = comments.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }
+
   /** 1) Fetch zaps that tag the main app/stack (#a) → main feed zaps. 2) Then fetch zaps that tag any comment or zap in that main feed (#e) and merge. One level only; deeper zaps later. */
   async function loadZaps() {
     if (!app?.pubkey || !app?.dTag) return;
@@ -385,6 +400,9 @@
       }
       zaps = merged;
       await hydrateZapperProfiles();
+      
+      // After loading more zaps, merge any new zaps with comments into the comments feed
+      mergeZapsIntoComments();
     } catch (err) {
       console.error("Failed to load zaps by main feed ids:", err);
     }
@@ -710,7 +728,7 @@
       
       const mainFeedZapIds = zaps.filter((z) => !z.zappedEventId).map((z) => z.id);
       const allCommentIds = await loadCommentReplies();
-      loadZapsByMainFeedIds([...allCommentIds, ...mainFeedZapIds]);      
+      loadZapsByMainFeedIds([...allCommentIds, ...mainFeedZapIds]);
     });
 
     // Background refresh from relays and load releases
@@ -901,10 +919,10 @@
           </div>
           <div class="panel-list flex flex-col">
             <!-- 1. Published by Developer (check) or Published by Indexer (line) -->
-            <div class="panel-list-item flex items-center gap-3" style="color: hsl(var(--white66)); opacity: 1; transform: scale(1); transform-origin: left;">
+            <div class="panel-list-item flex items-center gap-2" style="color: hsl(var(--white66));">
               {#if publishedByDeveloper}
-                <svg class="security-check flex-shrink-0" width="18" height="14" viewBox="0 0 18 14" fill="none">
-                  <path d="M6.2 13L0.7 7.5L6.2 12.75L16.7 2.5L6.2 13Z" stroke="hsl(var(--blurpleColor))" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                <svg class="security-check flex-shrink-0" width="14" height="10" viewBox="0 0 18 12" fill="none">
+                  <path d="M6.2 11.2L0.7 5.7L6.2 10.95L16.7 0.7L6.2 11.2Z" stroke="hsl(var(--blurpleColor))" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
                 <span class="text-sm">Published by Developer</span>
               {:else}
@@ -913,10 +931,10 @@
               {/if}
             </div>
             <!-- 2. Open source (check) or Closed-source (line) -->
-            <div class="panel-list-item flex items-center gap-3" style="color: hsl(var(--white66)); opacity: 0.82; transform: scale(0.95); transform-origin: left;">
+            <div class="panel-list-item flex items-center gap-2" style="color: hsl(var(--white66)); opacity: 0.9; transform: scale(0.98); transform-origin: left;">
               {#if hasRepository}
-                <svg class="security-check flex-shrink-0" width="18" height="14" viewBox="0 0 18 14" fill="none">
-                  <path d="M6.2 13L0.7 7.5L6.2 12.75L16.7 2.5L6.2 13Z" stroke="hsl(var(--blurpleColor))" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                <svg class="security-check flex-shrink-0" width="14" height="10" viewBox="0 0 18 12" fill="none">
+                  <path d="M6.2 11.2L0.7 5.7L6.2 10.95L16.7 0.7L6.2 11.2Z" stroke="hsl(var(--blurpleColor))" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
                 <span class="text-sm">Open source</span>
               {:else}
@@ -925,9 +943,9 @@
               {/if}
             </div>
             <!-- 3. Trusted Catalog: always for all apps -->
-            <div class="panel-list-item panel-list-item-last flex items-center gap-3" style="color: hsl(var(--white66)); opacity: 0.64; transform: scale(0.90); transform-origin: left;">
-              <svg class="security-check flex-shrink-0" width="18" height="14" viewBox="0 0 18 14" fill="none">
-                <path d="M6.2 13L0.7 7.5L6.2 12.75L16.7 2.5L6.2 13Z" stroke="hsl(var(--blurpleColor))" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            <div class="panel-list-item panel-list-item-last flex items-center gap-2" style="color: hsl(var(--white66)); opacity: 0.85; transform: scale(0.96); transform-origin: left;">
+              <svg class="security-check flex-shrink-0" width="14" height="10" viewBox="0 0 18 12" fill="none">
+                <path d="M6.2 11.2L0.7 5.7L6.2 10.95L16.7 0.7L6.2 11.2Z" stroke="hsl(var(--blurpleColor))" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
               <span class="text-sm">Trusted Catalog</span>
             </div>
@@ -1013,11 +1031,7 @@
       <SocialTabs
         app={app}
         version={latestRelease?.version}
-        mainEventIds={[
-          app?.id,
-          ...releases.map(r => r.id),
-          ...releases.flatMap(r => r.artifacts ?? [])
-        ].filter(Boolean) as string[]}
+        mainEventIds={[app?.id, latestRelease?.id].filter(Boolean) as string[]}
         {publisherProfile}
         getAppSlug={(p, d) => (app ? (app.naddr || encodeAppNaddr(p, d)) : "")}
         pubkeyToNpub={(pk) => nip19.npubEncode(pk)}
@@ -1115,14 +1129,13 @@
       <Modal
         bind:open={releasesModalOpen}
         ariaLabel="Releases"
-        maxHeight={75}
+        maxHeight={90}
         fillHeight={true}
         class="releases-modal"
       >
         <div class="releases-modal-inner">
           <div class="releases-modal-header">
             <h2 class="text-display text-4xl text-foreground text-center mb-3">Releases</h2>
-            <p class="releases-modal-desc">All versions and their changelogs for {app.name}.</p>
             {#if app.repository || app.url}
               <div class="releases-modal-app-info">
                 {#if app.repository}
@@ -1194,7 +1207,7 @@
       </Modal>
     {/if}
 
-    <!-- Security Modal -->
+    <!-- Security Modal (simple: header + coming soon) -->
     {#if app}
       <Modal
         bind:open={securityModalOpen}
@@ -1205,90 +1218,7 @@
         <div class="security-modal-inner">
           <div class="security-modal-header">
             <h2 class="text-display text-4xl text-foreground text-center mb-3">Security</h2>
-            <p class="security-coming-soon">More Security metrics and tooling coming soon.</p>
-          </div>
-          <div class="security-modal-divider"></div>
-          
-          <!-- Published by Developer/Indexer -->
-          <div class="security-item-content">
-            <div class="security-item-header">
-              {#if publishedByDeveloper}
-                <svg class="security-check-icon" width="24" height="20" viewBox="0 0 24 20" fill="none">
-                  <path d="M8 17L2 11L8 16.5L22 3L8 17Z" stroke="hsl(var(--blurpleColor))" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-                <h3 class="security-item-title">Published by Developer</h3>
-              {:else}
-                <span class="security-line" aria-hidden="true"></span>
-                <h3 class="security-item-title">Published by Indexer</h3>
-              {/if}
-            </div>
-            <p class="security-item-description">
-              {#if publishedByDeveloper}
-                This app is published directly by its developer, ensuring authenticity and direct updates from the source.
-              {:else}
-                This app is published by a Zapstore indexer. While vetted, it's not directly from the developer.
-              {/if}
-            </p>
-            {#if publisherProfile}
-              <div class="security-profile">
-                <ProfilePic pictureUrl={publisherProfile.picture} name={publisherName} size="xs" />
-                <span class="security-profile-name">{publisherName}</span>
-              </div>
-            {/if}
-          </div>
-          <div class="security-modal-divider"></div>
-
-          <!-- Open source/Closed-source -->
-          <div class="security-item-content">
-            <div class="security-item-header">
-              {#if hasRepository}
-                <svg class="security-check-icon" width="24" height="20" viewBox="0 0 24 20" fill="none">
-                  <path d="M8 17L2 11L8 16.5L22 3L8 17Z" stroke="hsl(var(--blurpleColor))" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-                <h3 class="security-item-title">Open Source</h3>
-              {:else}
-                <span class="security-line" aria-hidden="true"></span>
-                <h3 class="security-item-title">Closed Source</h3>
-              {/if}
-            </div>
-            <p class="security-item-description">
-              {#if hasRepository}
-                The source code is publicly available for review, allowing community audits and transparency.
-              {:else}
-                The source code is not publicly available. Exercise caution and verify the publisher's reputation.
-              {/if}
-            </p>
-            {#if hasRepository && app.repository}
-              <div class="security-profile">
-                <img src="/images/emoji/repository.png" alt="Repository" class="security-emoji-icon" />
-                <a href={app.repository} target="_blank" rel="noopener noreferrer" class="security-profile-link">{app.repository}</a>
-              </div>
-            {/if}
-          </div>
-          <div class="security-modal-divider"></div>
-
-          <!-- Trusted Catalog -->
-          <div class="security-item-content">
-            <div class="security-item-header">
-              <svg class="security-check-icon" width="24" height="20" viewBox="0 0 24 20" fill="none">
-                <path d="M8 17L2 11L8 16.5L22 3L8 17Z" stroke="hsl(var(--blurpleColor))" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-              <h3 class="security-item-title">Trusted Catalog</h3>
-            </div>
-            <p class="security-item-description">
-              This app is listed in the official Zapstore catalog, which is curated and maintained by the Zapstore team.
-            </p>
-            {#each effectiveCatalogs as catalog}
-              <div class="security-profile">
-                <ProfilePic 
-                  pictureUrl={catalog.pictureUrl} 
-                  name={catalog.name} 
-                  pubkey={catalog.pubkey} 
-                  size="xs" 
-                />
-                <span class="security-profile-name">{catalog.name}</span>
-              </div>
-            {/each}
+            <p class="text-sm text-center" style="color: hsl(var(--white66));">More Security metrics and tooling coming soon.</p>
           </div>
         </div>
       </Modal>
@@ -1304,11 +1234,10 @@
       <div class="suggestions-modal-inner">
         <div class="suggestions-modal-header">
           <h2 class="text-display text-4xl text-foreground text-center mb-3">Suggestions</h2>
-          <p class="suggestions-modal-desc">
+          <p class="suggestions-modal-desc text-sm text-center" style="color: hsl(var(--white66));">
             The suggestion filter is very basic and dumb for now, while we are building smart search and suggestions.
           </p>
         </div>
-        <div class="suggestions-modal-divider"></div>
         <div class="suggestions-modal-list">
           {#each suggestionApps as sug}
             {@const sugHref = sug.naddr ? `/apps/${sug.naddr}` : `/apps/${encodeAppNaddr(sug.pubkey, sug.dTag)}`}
@@ -1392,16 +1321,16 @@
   }
 
   .security-check {
-    width: 18px;
-    height: 14px;
+    width: 14px;
+    height: 10px;
   }
 
   .security-line {
     display: inline-block;
-    width: 16px;
-    height: 2px;
+    width: 14px;
+    height: 2.8px;
     background-color: hsl(var(--white33));
-    border-radius: 1px;
+    border-radius: 1.4px;
   }
 
   .security-modal-inner {
@@ -1412,130 +1341,9 @@
     padding: 1rem 1.5rem;
   }
 
-  .security-modal-app-info {
-    margin-top: 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .security-meta-row {
-    display: flex;
-    align-items: baseline;
-    gap: 0.75rem;
-    font-size: 0.875rem;
-  }
-
-  .security-meta-label {
-    color: hsl(var(--white33));
-    font-weight: 500;
-    flex-shrink: 0;
-  }
-
-  .security-meta-link {
-    color: hsl(var(--blurpleLightColor));
-    text-decoration: none;
-    word-break: break-all;
-    font-weight: 500;
-  }
-
-  .security-meta-link:hover {
-    text-decoration: underline;
-  }
-
-  .security-coming-soon {
-    margin-top: 1rem;
-    font-size: 1rem;
-    text-align: center;
-    color: hsl(var(--white66));
-    line-height: 1.5;
-  }
-
-  .security-modal-divider {
-    width: 100%;
-    height: 1px;
-    background-color: hsl(var(--white16));
-    flex-shrink: 0;
-  }
-
-  .security-item-content {
-    padding: 1rem 1rem;
-  }
-
-  .security-item-header {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    margin-bottom: 0.75rem;
-  }
-
-  .security-check-icon {
-    flex-shrink: 0;
-    width: 24px;
-    height: 20px;
-  }
-
-  .security-line {
-    display: inline-block;
-    width: 20px;
-    height: 3px;
-    background-color: hsl(var(--white33));
-    border-radius: 1.5px;
-    flex-shrink: 0;
-  }
-
-  .security-item-title {
-    font-size: 1.125rem;
-    font-weight: 500;
-    color: hsl(var(--foreground));
-    margin: 0;
-  }
-
-  .security-item-description {
-    margin: 0 0 0.75rem calc(24px + 1rem);
-    font-size: 0.875rem;
-    line-height: 1.5;
-    color: hsl(var(--white66));
-  }
-
-  .security-profile {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-left: calc(24px + 1rem);
-  }
-
-  .security-profile-name {
-    font-size: 0.875rem;
-    color: hsl(var(--white));
-    font-weight: 500;
-  }
-
-  .security-emoji-icon {
-    width: 16px;
-    height: 16px;
-    flex-shrink: 0;
-  }
-
-  .security-profile-link {
-    font-size: 0.875rem;
-    color: hsl(var(--blurpleLightColor));
-    text-decoration: none;
-    font-weight: 500;
-    word-break: break-all;
-  }
-
-  .security-profile-link:hover {
-    text-decoration: underline;
-  }
-
   @media (min-width: 768px) {
     .security-modal-header {
       padding: 1.5rem 2rem;
-    }
-
-    .security-item-content {
-      padding: 1.25rem 1.25rem;
     }
   }
 
@@ -1558,20 +1366,13 @@
     padding: 1rem 1.5rem;
   }
   .suggestions-modal-desc {
-    font-size: 1rem;
-    color: hsl(var(--white66));
     max-width: 36rem;
-    margin: 0 auto;
-    text-align: center;
+    margin-left: auto;
+    margin-right: auto;
     line-height: 1.5;
   }
-  .suggestions-modal-divider {
-    width: 100%;
-    height: 1px;
-    background-color: hsl(var(--white16));
-  }
   .suggestions-modal-list {
-    padding: 1rem 1rem 1.5rem;
+    padding: 0 1rem 1.5rem;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -1582,7 +1383,7 @@
       padding: 1.5rem 2rem;
     }
     .suggestions-modal-list {
-      padding: 1rem 1rem 2rem;
+      padding: 0 2rem 2rem;
       gap: 0.75rem;
     }
   }
@@ -1840,20 +1641,16 @@
 
   /* Releases modal: zero padding so dividers full width; same bg throughout */
   .releases-modal-inner {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
     padding: 0;
   }
 
   .releases-modal-header {
+    flex-shrink: 0;
     padding: 1rem 1.5rem;
-  }
-
-  .releases-modal-desc {
-    font-size: 1rem;
-    color: hsl(var(--white66));
-    max-width: 36rem;
-    margin: 0 auto;
-    text-align: center;
-    line-height: 1.5;
   }
 
   @media (min-width: 768px) {
@@ -1866,19 +1663,22 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.75rem 1.25rem;
-    font-size: 1rem;
+    font-size: 0.875rem;
     color: hsl(var(--white66));
     justify-content: center;
-    margin-top: 1rem;
   }
 
   .releases-modal-divider {
+    flex-shrink: 0;
     width: 100%;
     height: 1px;
     background-color: hsl(var(--white16));
   }
 
   .releases-modal-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
   }
@@ -1894,7 +1694,7 @@
   }
 
   .release-panel-version {
-    font-size: 1.125rem;
+    font-size: 1rem;
     font-weight: 600;
     margin: 0 0 0.5rem 0;
   }
@@ -1904,7 +1704,7 @@
     flex-wrap: wrap;
     gap: 0.5rem 1rem;
     margin-bottom: 0.5rem;
-    font-size: 1rem;
+    font-size: 0.875rem;
     color: hsl(var(--white66));
   }
 

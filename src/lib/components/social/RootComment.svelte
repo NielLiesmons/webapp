@@ -121,6 +121,7 @@
 
   let modalOpen = $state(false);
   let zapModalOpen = $state(false);
+  let welcomeModalOpen = $state(false);
   let commentExpanded = $state(false);
   /** When set, we're replying to this comment (show QuotedMessage above input) */
   let replyingToComment = $state<ReplyComment | null>(null);
@@ -132,8 +133,8 @@
   let actionsModalTarget = $state<"root" | ReplyComment | ThreadZapItem | null>(null);
   let actionsModalOpen = $state(false);
 
-  /** True when any modal is open on top of the thread (Zap or Comment/Zap options) – drives overlay + scale animation */
-  const childModalOpen = $derived(zapModalOpen || actionsModalOpen);
+  /** True when any modal is open on top of the thread (Zap, Comment/Zap options, or Welcome) – drives overlay + scale animation */
+  const childModalOpen = $derived(zapModalOpen || actionsModalOpen || welcomeModalOpen);
 
   // Unique people in the thread: comment repliers + zappers (by pubkey), same shape as ReplyComment for profile stack. App author first.
   const uniqueRepliers = $derived.by(() => {
@@ -284,6 +285,19 @@
 
   function handleZap() {
     zapModalOpen = true;
+  }
+
+  function handleCommentClick() {
+    if (getIsSignedIn()) {
+      handleReply();
+    } else {
+      welcomeModalOpen = true;
+    }
+  }
+
+  function handleWelcomeGetStarted() {
+    modalOpen = false;
+    onGetStarted?.();
   }
 
   function handleReply() {
@@ -590,21 +604,11 @@
               <span>Zap</span>
             </button>
 
-            {#if getIsSignedIn()}
-              <InputButton placeholder="Comment" onclick={handleReply}>
-                {#snippet icon()}
-                  <Reply variant="outline" size={18} strokeWidth={1.4} color="hsl(var(--white33))" />
-                {/snippet}
-              </InputButton>
-            {:else}
-              <button
-                type="button"
-                class="thread-get-started-comment-btn"
-                onclick={() => onGetStarted?.()}
-              >
-                <span class="get-started-text">Get started with Zapstore to comment</span>
-              </button>
-            {/if}
+            <InputButton placeholder="Comment" onclick={handleCommentClick}>
+              {#snippet icon()}
+                <Reply variant="outline" size={18} strokeWidth={1.4} color="hsl(var(--white33))" />
+              {/snippet}
+            </InputButton>
 
             <button type="button" class="btn-secondary-large btn-secondary-dark options-button" onclick={handleOptions}>
               <Options variant="fill" size={20} color="hsl(var(--white33))" />
@@ -655,6 +659,12 @@
   contentPreview={actionsModalTarget === "root" ? (content || "").trim() : (actionsModalTarget ? ("comment" in actionsModalTarget ? (actionsModalTarget as ThreadZapItem).comment ?? "" : getContentPreview(actionsModalTarget as ReplyComment)) : "")}
   onComment={actionsModalOnComment}
   onZap={actionsModalOnZap}
+/>
+
+<WelcomeModal
+  bind:open={welcomeModalOpen}
+  onGetStarted={handleWelcomeGetStarted}
+  onCloseParent={() => (modalOpen = false)}
 />
 
 <ZapSliderModal
@@ -836,33 +846,6 @@
     flex-shrink: 0;
   }
 
-  /* Same look as Comment InputButton: border, bg, height, radius */
-  .thread-get-started-comment-btn {
-    display: flex;
-    align-items: center;
-    flex: 1;
-    min-width: 0;
-    height: 42px;
-    padding: 0 16px;
-    background-color: hsl(var(--black33));
-    border-radius: 16px;
-    border: 0.33px solid hsl(var(--white33));
-    cursor: pointer;
-    justify-content: flex-start;
-  }
-  .thread-get-started-comment-btn .get-started-text {
-    color: hsl(var(--white33));
-    font-size: 16px;
-    font-weight: 500;
-  }
-  @media (max-width: 767px) {
-    .thread-get-started-comment-btn {
-      height: 38px;
-    }
-    .thread-get-started-comment-btn .get-started-text {
-      font-size: 14px;
-    }
-  }
 
   .options-button {
     width: 42px;

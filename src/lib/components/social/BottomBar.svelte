@@ -88,6 +88,11 @@
 	}
 
 	function handleComment() {
+		if (!isSignedIn) {
+			// For non-logged-in: open Welcome modal instead of comment form
+			onGetStarted?.();
+			return;
+		}
 		commentExpanded = true;
 	}
 
@@ -141,21 +146,11 @@
 					<span>Zap</span>
 				</button>
 
-				{#if isSignedIn}
-					<InputButton className="comment-btn" placeholder="Comment" onclick={handleComment}>
-						{#snippet icon()}
-							<Reply variant="outline" size={18} strokeWidth={1.4} color="hsl(var(--white33))" />
-						{/snippet}
-					</InputButton>
-				{:else}
-					<button
-						type="button"
-						class="get-started-comment-btn"
-						onclick={() => onGetStarted?.()}
-					>
-						<span class="get-started-text">Get started with Zapstore to comment</span>
-					</button>
-				{/if}
+				<InputButton className="comment-btn" placeholder="Comment" onclick={handleComment}>
+					{#snippet icon()}
+						<Reply variant="outline" size={18} strokeWidth={1.4} color="hsl(var(--white33))" />
+					{/snippet}
+				</InputButton>
 
 				<button
 					type="button"
@@ -279,34 +274,6 @@
 		gap: 8px;
 		padding: 0 20px 0 14px;
 		flex-shrink: 0;
-	}
-
-	/* Same look as Comment InputButton: border, bg, height, radius */
-	.get-started-comment-btn {
-		display: flex;
-		align-items: center;
-		flex: 1;
-		min-width: 0;
-		height: 42px;
-		padding: 0 16px;
-		background-color: hsl(var(--black33));
-		border-radius: 16px;
-		border: 0.33px solid hsl(var(--white33));
-		cursor: pointer;
-		justify-content: flex-start;
-	}
-	.get-started-comment-btn .get-started-text {
-		color: hsl(var(--white33));
-		font-size: 16px;
-		font-weight: 500;
-	}
-	@media (max-width: 767px) {
-		.get-started-comment-btn {
-			height: 38px;
-		}
-		.get-started-comment-btn .get-started-text {
-			font-size: 14px;
-		}
 	}
 
 	.options-button {

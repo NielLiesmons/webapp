@@ -8,6 +8,7 @@ and browsing apps distributed via Nostr app catalogs.
 | What | Where |
 |------|-------|
 | **Design system (colors, gradients, panels, buttons, icons, etc.)** | **`DESIGN_SYSTEM.md`** |
+| **Performance (local-first, prerender, stores — DO NOT REGRESS)** | **`spec/guidelines/PERFORMANCE.md`** |
 | Architecture & patterns | `spec/guidelines/ARCHITECTURE.md` |
 | Non-negotiable rules | `spec/guidelines/INVARIANTS.md` |
 | Quality standards | `spec/guidelines/QUALITY_BAR.md` |
@@ -33,11 +34,12 @@ and browsing apps distributed via Nostr app catalogs.
 ## Rules
 
 1. Read `spec/guidelines/ARCHITECTURE.md` first for technical context
-2. Never modify files in `spec/guidelines/` without explicit permission
-3. If a spec is unclear, report it—do not guess
-4. Prefer small, localized changes. Avoid unrelated refactors.
-5. After dependency changes, run: `pnpm install`
-6. Fix any TypeScript/lint errors introduced by your changes
+2. **Before changing data loading, routing, Nostr/relay code, or listing/detail stores:** read **`spec/guidelines/PERFORMANCE.md`** and do not regress the rules there
+3. Never modify files in `spec/guidelines/` without explicit permission
+4. If a spec is unclear, report it—do not guess
+5. Prefer small, localized changes. Avoid unrelated refactors.
+6. After dependency changes, run: `pnpm install`
+7. Fix any TypeScript/lint errors introduced by your changes
 
 ## Spec-First Workflow
 

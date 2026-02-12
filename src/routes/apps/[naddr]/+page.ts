@@ -45,7 +45,7 @@ export const load: PageLoad = async ({ params }) => {
 			{ relays: [...DEFAULT_CATALOG_RELAYS], timeout: 10000 }
 		),
 		fetchEvent(
-			{ kinds: [EVENT_KINDS.RELEASE], '#a': [aTagValue], ...PLATFORM_FILTER, limit: 1 },
+			{ kinds: [EVENT_KINDS.RELEASE], '#a': [aTagValue], limit: 1 },
 			{ relays: [...DEFAULT_CATALOG_RELAYS], timeout: 10000 }
 		)
 	]);
