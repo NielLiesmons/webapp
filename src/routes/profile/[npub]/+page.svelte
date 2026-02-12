@@ -4,12 +4,10 @@
  */
 import { onMount } from 'svelte';
 import { browser } from '$app/environment';
-import { fetchEvents, fetchProfile, fetchAppStacksParsed, parseApp, initNostrService, encodeAppNaddr, encodeStackNaddr } from '$lib/nostr';
+import { fetchProfile, encodeAppNaddr, encodeStackNaddr } from '$lib/nostr';
 import { nip19 } from 'nostr-tools';
-import { EVENT_KINDS, DEFAULT_CATALOG_RELAYS, PLATFORM_FILTER } from '$lib/config';
 import { wheelScroll } from '$lib/actions/wheelScroll.js';
 import { parseShortText } from '$lib/utils/short-text-parser.js';
-import { resolveMultipleStackApps } from '$lib/stores/stacks.svelte.js';
 import { getCurrentPubkey } from '$lib/stores/auth.svelte.js';
 import ProfilePic from '$lib/components/common/ProfilePic.svelte';
 import NpubDisplay from '$lib/components/common/NpubDisplay.svelte';
@@ -23,11 +21,11 @@ let { data } = $props();
 const npub = $derived(data.npub ?? '');
 const pubkey = $derived(data.pubkey);
 let profile = $state(null);
-let profileLoading = $state(true);
+let profileLoading = $state(false);
 let apps = $state([]);
-let appsLoading = $state(true);
+let appsLoading = $state(false);
 let stacks = $state([]);
-let stacksLoading = $state(true);
+let stacksLoading = $state(false);
 let addButtonLabel = $state('Add');
 let addButtonDisabled = $state(false);
 /** Resolved display names for npubs mentioned in profile about (nostr:npub1...) */
@@ -40,8 +38,6 @@ const isConnected = $derived(getCurrentPubkey() !== null);
 async function loadProfile(pk) {
     profileLoading = true;
     try {
-        if (browser)
-            await initNostrService();
         const event = await fetchProfile(pk);
         if (event?.content) {
             const c = JSON.parse(event.content);
@@ -61,44 +57,6 @@ async function loadProfile(pk) {
     }
     finally {
         profileLoading = false;
-    }
-}
-async function loadAppsByAuthor(pk) {
-    appsLoading = true;
-    try {
-        if (browser)
-            await initNostrService();
-        const events = await fetchEvents({ kinds: [EVENT_KINDS.APP], authors: [pk], ...PLATFORM_FILTER, limit: 50 }, { relays: [...DEFAULT_CATALOG_RELAYS], timeout: 8000 });
-        apps = events.map((ev) => parseApp(ev));
-    }
-    catch {
-        apps = [];
-    }
-    finally {
-        appsLoading = false;
-    }
-}
-async function loadStacksByAuthor(pk) {
-    stacksLoading = true;
-    try {
-        if (browser)
-            await initNostrService();
-        const list = await fetchAppStacksParsed({
-            authors: [pk],
-            limit: 50,
-            timeout: 8000
-        });
-        stacks = list;
-        // Resolve app details for ALL stacks in one batched operation
-        // (collects all app refs, groups by pubkey, fetches in parallel)
-        resolvedStacks = await resolveMultipleStackApps(list);
-    }
-    catch {
-        stacks = [];
-        resolvedStacks = [];
-    }
-    finally {
-        stacksLoading = false;
     }
 }
 /** Load profiles for pubkeys mentioned in about (nostr:npub...) for resolveMentionLabel */
@@ -160,9 +118,12 @@ async function copyNpub() {
 onMount(() => {
     if (!pubkey || !browser)
         return;
-    loadProfile(pubkey);
-    loadAppsByAuthor(pubkey);
-    loadStacksByAuthor(pubkey);
+    profile = data.profile ?? null;
+    apps = data.apps ?? [];
+    stacks = data.stacks ?? [];
+    resolvedStacks = data.resolvedStacks ?? [];
+    if (!profile)
+        loadProfile(pubkey);
 });
 $effect(() => {
     const about = profile?.about?.trim();

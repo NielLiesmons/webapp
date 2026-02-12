@@ -8,10 +8,10 @@ import AppSmallCard from '$lib/components/cards/AppSmallCard.svelte';
 import AppStackCard from '$lib/components/cards/AppStackCard.svelte';
 import SkeletonLoader from '$lib/components/common/SkeletonLoader.svelte';
 import { getApps, getHasMore, isRefreshing, isLoadingMore, isStoreInitialized, initWithPrerenderedData, scheduleRefresh, loadMore } from '$lib/stores/nostr.svelte.js';
-import { getStacks, isStacksInitialized, initWithPrerenderedStacks, scheduleStacksRefresh, resolveStackApps, getResolvedStacks, setResolvedStacks } from '$lib/stores/stacks.svelte.js';
+import { getStacks, isStacksInitialized, initWithPrerenderedStacks, scheduleStacksRefresh, resolveStackApps } from '$lib/stores/stacks.svelte.js';
 import { nip19 } from 'nostr-tools';
-import { encodeAppNaddr, encodeStackNaddr } from '$lib/nostr/models';
-import { fetchProfile } from '$lib/nostr/service';
+import { encodeStackNaddr } from '$lib/nostr/models';
+import { fetchProfilesBatch } from '$lib/nostr/service';
 import { parseProfile } from '$lib/nostr/models';
 // Server-provided data
 let { data } = $props();
@@ -104,8 +104,8 @@ function handleAppsScroll() {
         loadMore();
     }
 }
-// Resolved stacks with apps and creators - use cached version from store
-const cachedResolvedStacks = $derived(getResolvedStacks());
+// Resolved stacks with apps and creators (local page state)
+let resolvedDisplayStacks = $state([]);
 let stacksLoading = $state(false);
 // Group apps into columns of 4 for horizontal scroll
 function getAppColumns(appList, itemsPerColumn = 4) {
@@ -119,29 +119,59 @@ const appColumns = $derived(getAppColumns(apps, 4));
 function getAppUrl(app) {
     return `/apps/${app.naddr}`;
 }
+function isHexPubkey(value) {
+    return typeof value === 'string' && /^[0-9a-f]{64}$/i.test(value.trim());
+}
+function hasIdentifier(value) {
+    return typeof value === 'string' && value.trim().length > 0;
+}
+function safeEncodeStackNaddr(pubkey, dTag) {
+    if (!isHexPubkey(pubkey) || !hasIdentifier(dTag))
+        return '';
+    try {
+        return encodeStackNaddr(pubkey.trim().toLowerCase(), dTag.trim());
+    }
+    catch {
+        return '';
+    }
+}
+function safeNpub(pubkey) {
+    if (!isHexPubkey(pubkey))
+        return '';
+    try {
+        return nip19.npubEncode(pubkey.trim().toLowerCase());
+    }
+    catch {
+        return '';
+    }
+}
 function getStackUrl(stack) {
-    return `/stacks/${encodeStackNaddr(stack.pubkey, stack.dTag)}`;
+    const naddr = safeEncodeStackNaddr(stack?.pubkey, stack?.dTag);
+    return naddr ? `/stacks/${naddr}` : '#';
 }
 async function loadResolvedStacks() {
     if (!browser || stacks.length === 0)
         return;
     stacksLoading = true;
     try {
-        const resolved = await Promise.all(stacks.slice(0, 20).map(async (stack) => {
+        const visibleStacks = stacks.slice(0, 20);
+        const creatorPubkeys = [...new Set(visibleStacks.map((stack) => stack.pubkey).filter((pk) => isHexPubkey(pk)))];
+        const creatorEvents = await fetchProfilesBatch(creatorPubkeys);
+        const resolved = await Promise.all(visibleStacks.map(async (stack) => {
             // Resolve apps for the stack
             const stackApps = await resolveStackApps(stack);
             // Fetch creator profile from social relays
             let creator = undefined;
-            if (stack.pubkey) {
+            if (isHexPubkey(stack.pubkey)) {
                 try {
-                    const profileEvent = await fetchProfile(stack.pubkey);
+                    const profileEvent = creatorEvents.get(stack.pubkey);
                     if (profileEvent) {
                         const profile = parseProfile(profileEvent);
                         creator = {
                             name: profile.displayName || profile.name,
                             picture: profile.picture,
                             pubkey: stack.pubkey,
-                            npub: nip19.npubEncode(stack.pubkey)
+                            npub: safeNpub(stack.pubkey)
                         };
                     }
                 }
@@ -158,7 +188,7 @@ async function loadResolvedStacks() {
                 dTag: stack.dTag
             };
         }));
-        setResolvedStacks(resolved);
+        resolvedDisplayStacks = resolved;
     }
     catch (err) {
         console.error('Error resolving stacks:', err);
@@ -167,9 +197,9 @@ async function loadResolvedStacks() {
         stacksLoading = false;
     }
 }
-// Load stacks when they become available (only if not already cached)
+// Load stack cards when stacks become available
 $effect(() => {
-    if (stacks.length > 0 && cachedResolvedStacks.length === 0 && !stacksLoading) {
+    if (stacks.length > 0 && resolvedDisplayStacks.length === 0 && !stacksLoading) {
         loadResolvedStacks();
     }
 });
@@ -181,7 +211,7 @@ onMount(async () => {
         initWithPrerenderedData(data.apps, data.nextCursor, seedEvents);
     }
     if (!isStacksInitialized()) {
-        initWithPrerenderedStacks([], null);
+        initWithPrerenderedStacks(data.stacks ?? [], data.resolvedStacks ?? [], data.stacksNextCursor ?? null, data.stacksSeedEvents ?? []);
     }
     // Schedule background refresh for apps and stacks
     scheduleRefresh();
@@ -256,7 +286,7 @@ onMount(async () => {
 		<!-- Stacks Section -->
 		<div class="section-container">
 			<SectionHeader title="Stacks" linkText="See all" href="/stacks" />
-			{#if cachedResolvedStacks.length === 0}
+			{#if !stacksInitialized || (stacks.length > 0 && resolvedDisplayStacks.length === 0 && stacksLoading)}
 				<div class="horizontal-scroll" use:wheelScroll>
 					<div class="scroll-content">
 						{#each Array(4) as _}
@@ -285,10 +315,10 @@ onMount(async () => {
 						{/each}
 					</div>
 				</div>
-			{:else if cachedResolvedStacks.length > 0}
+			{:else if resolvedDisplayStacks.length > 0}
 				<div class="horizontal-scroll" use:wheelScroll bind:this={stacksScrollContainer}>
 					<div class="scroll-content">
-						{#each cachedResolvedStacks as stack}
+						{#each resolvedDisplayStacks as stack}
 							<div class="stack-item">
 								<AppStackCard {stack} href={getStackUrl(stack)} />
 							</div>

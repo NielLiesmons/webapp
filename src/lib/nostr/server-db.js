@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { EVENT_KINDS, PLATFORM_FILTER } from '$lib/config';
-import { parseApp, parseRelease } from './models';
+import { parseApp, parseAppStack, parseProfile, parseRelease } from './models';
 let db = null;
 function dynamicImport(moduleName) {
     // Keep module resolution runtime-only so Node build does not try to load bun:* modules.
@@ -96,6 +96,60 @@ function dedupeEventsById(events) {
 }
 function buildInPlaceholders(count) {
     return new Array(count).fill('?').join(',');
+}
+
+function getLatestAppsForRefs(database, refs) {
+    if (!refs || refs.length === 0)
+        return [];
+    const platformTag = PLATFORM_FILTER['#f']?.[0];
+    const byPubkey = new Map();
+    for (const ref of refs) {
+        if (!ref?.pubkey || !ref?.identifier)
+            continue;
+        const existing = byPubkey.get(ref.pubkey) || [];
+        existing.push(ref.identifier);
+        byPubkey.set(ref.pubkey, existing);
+    }
+    const appEvents = [];
+    for (const [pubkey, identifiers] of byPubkey.entries()) {
+        const uniqueIdentifiers = Array.from(new Set(identifiers));
+        const inClause = buildInPlaceholders(uniqueIdentifiers.length);
+        const sql = `SELECT e.id, e.pubkey, e.created_at, e.kind, json(e.tags) AS tags, e.content, e.sig
+			FROM events e
+			INNER JOIN tags d ON d.event_id = e.id AND d.key = 'd'
+			WHERE e.kind = ?
+			  AND e.pubkey = ?
+			  AND d.value IN (${inClause})
+			  ${platformTag ? `AND EXISTS (
+					SELECT 1 FROM tags f
+					WHERE f.event_id = e.id
+					  AND f.key = 'f'
+					  AND f.value = ?
+			  )` : ''}
+			ORDER BY e.created_at DESC, e.id ASC`;
+        const params = [EVENT_KINDS.APP, pubkey, ...uniqueIdentifiers];
+        if (platformTag)
+            params.push(platformTag);
+        const rows = database.query(sql).all(...params);
+        appEvents.push(...rows.map(rowToEvent));
+    }
+    const latestByKey = new Map();
+    for (const ev of appEvents) {
+        const dTag = getFirstTagValue(ev, 'd');
+        if (!dTag)
+            continue;
+        const key = `${ev.pubkey}:${dTag}`;
+        if (!latestByKey.has(key)) {
+            latestByKey.set(key, ev);
+        }
+    }
+    const ordered = [];
+    for (const ref of refs) {
+        const ev = latestByKey.get(`${ref.pubkey}:${ref.identifier}`);
+        if (ev)
+            ordered.push(ev);
+    }
+    return ordered;
 }
 export async function fetchAppsByReleases(limit = 20, until) {
     const database = await getDb();
@@ -233,6 +287,155 @@ export async function fetchLatestReleaseForApp(pubkey, identifier) {
     if (!row)
         return null;
     return parseRelease(rowToEvent(row));
+}
+
+export async function fetchReleasesForApp(pubkey, identifier, limit = 50) {
+    const database = await getDb();
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
+    const aTagValue = `${EVENT_KINDS.APP}:${pubkey}:${identifier}`;
+    const platformTag = PLATFORM_FILTER['#f']?.[0];
+    const sql = `SELECT e.id, e.pubkey, e.created_at, e.kind, json(e.tags) AS tags, e.content, e.sig
+		 FROM events e
+		 INNER JOIN tags a ON a.event_id = e.id AND a.key = 'a'
+		 WHERE e.kind = ?
+		   AND a.value = ?
+		   ${platformTag ? `AND EXISTS (
+				SELECT 1 FROM tags f
+				WHERE f.event_id = e.id
+				  AND f.key = 'f'
+				  AND f.value = ?
+		   )` : ''}
+		 ORDER BY e.created_at DESC, e.id ASC
+		 LIMIT ?`;
+    const params = platformTag
+        ? [EVENT_KINDS.RELEASE, aTagValue, platformTag, safeLimit]
+        : [EVENT_KINDS.RELEASE, aTagValue, safeLimit];
+    const rows = database.query(sql).all(...params);
+    return rows.map((row) => parseRelease(rowToEvent(row)));
+}
+
+export async function fetchStacks(limit = 20, until) {
+    const database = await getDb();
+    const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+    const stackQuery = until === undefined
+        ? database.query(`SELECT id, pubkey, created_at, kind, json(tags) AS tags, content, sig
+				 FROM events
+				 WHERE kind = ?
+				 ORDER BY created_at DESC, id ASC
+				 LIMIT ?`)
+        : database.query(`SELECT id, pubkey, created_at, kind, json(tags) AS tags, content, sig
+				 FROM events
+				 WHERE kind = ?
+				   AND created_at <= ?
+				 ORDER BY created_at DESC, id ASC
+				 LIMIT ?`);
+    const rows = until === undefined
+        ? stackQuery.all(EVENT_KINDS.APP_STACK, safeLimit)
+        : stackQuery.all(EVENT_KINDS.APP_STACK, until, safeLimit);
+    const stackEvents = rows.map(rowToEvent);
+    const stacks = stackEvents.map(parseAppStack);
+    const resolvedStacks = [];
+    const selectedAppEvents = [];
+    for (const stack of stacks) {
+        const appEvents = getLatestAppsForRefs(database, stack.appRefs ?? []);
+        selectedAppEvents.push(...appEvents);
+        resolvedStacks.push({
+            stack,
+            apps: appEvents.map(parseApp)
+        });
+    }
+    const lastStack = stackEvents[stackEvents.length - 1];
+    const nextCursor = stackEvents.length === safeLimit && lastStack ? lastStack.created_at - 1 : null;
+    const seedEvents = dedupeEventsById([...stackEvents, ...selectedAppEvents]);
+    return {
+        stacks,
+        resolvedStacks,
+        nextCursor,
+        seedEvents
+    };
+}
+
+export async function fetchStack(pubkey, identifier) {
+    const database = await getDb();
+    const stackQuery = database.query(`SELECT e.id, e.pubkey, e.created_at, e.kind, json(e.tags) AS tags, e.content, e.sig
+		 FROM events e
+		 INNER JOIN tags d ON d.event_id = e.id AND d.key = 'd'
+		 WHERE e.kind = ?
+		   AND e.pubkey = ?
+		   AND d.value = ?
+		 ORDER BY e.created_at DESC, e.id ASC
+		 LIMIT 1`);
+    const stackRow = stackQuery.get(EVENT_KINDS.APP_STACK, pubkey, identifier);
+    if (!stackRow)
+        return null;
+    const stackEvent = rowToEvent(stackRow);
+    const stack = parseAppStack(stackEvent);
+    const appEvents = getLatestAppsForRefs(database, stack.appRefs ?? []);
+    const apps = appEvents.map(parseApp);
+    const profileQuery = database.query(`SELECT e.id, e.pubkey, e.created_at, e.kind, json(e.tags) AS tags, e.content, e.sig
+		 FROM events e
+		 WHERE e.kind = ?
+		   AND e.pubkey = ?
+		 ORDER BY e.created_at DESC, e.id ASC
+		 LIMIT 1`);
+    const profileRow = profileQuery.get(EVENT_KINDS.PROFILE, pubkey);
+    const creator = profileRow ? parseProfile(rowToEvent(profileRow)) : null;
+    const seedEvents = dedupeEventsById([stackEvent, ...appEvents, ...(profileRow ? [rowToEvent(profileRow)] : [])]);
+    return {
+        stack,
+        apps,
+        creator,
+        seedEvents
+    };
+}
+
+export async function fetchAppsByAuthor(pubkey, limit = 50) {
+    const database = await getDb();
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
+    const platformTag = PLATFORM_FILTER['#f']?.[0];
+    const sql = `SELECT e.id, e.pubkey, e.created_at, e.kind, json(e.tags) AS tags, e.content, e.sig
+		 FROM events e
+		 WHERE e.kind = ?
+		   AND e.pubkey = ?
+		   ${platformTag ? `AND EXISTS (
+				SELECT 1 FROM tags f
+				WHERE f.event_id = e.id
+				  AND f.key = 'f'
+				  AND f.value = ?
+		   )` : ''}
+		 ORDER BY e.created_at DESC, e.id ASC
+		 LIMIT ?`;
+    const params = platformTag
+        ? [EVENT_KINDS.APP, pubkey, platformTag, safeLimit]
+        : [EVENT_KINDS.APP, pubkey, safeLimit];
+    const rows = database.query(sql).all(...params);
+    return rows.map((row) => parseApp(rowToEvent(row)));
+}
+
+export async function fetchStacksByAuthor(pubkey, limit = 50) {
+    const database = await getDb();
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
+    const sql = `SELECT e.id, e.pubkey, e.created_at, e.kind, json(e.tags) AS tags, e.content, e.sig
+		 FROM events e
+		 WHERE e.kind = ?
+		   AND e.pubkey = ?
+		 ORDER BY e.created_at DESC, e.id ASC
+		 LIMIT ?`;
+    const rows = database.query(sql).all(EVENT_KINDS.APP_STACK, pubkey, safeLimit);
+    const stackEvents = rows.map(rowToEvent);
+    const stacks = stackEvents.map(parseAppStack);
+    const resolvedStacks = [];
+    for (const stack of stacks) {
+        const appEvents = getLatestAppsForRefs(database, stack.appRefs ?? []);
+        resolvedStacks.push({
+            stack,
+            apps: appEvents.map(parseApp)
+        });
+    }
+    return {
+        stacks,
+        resolvedStacks
+    };
 }
 export function closeServerDb() {
     if (db) {

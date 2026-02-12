@@ -1,14 +1,12 @@
 <script lang="js">
 import { onMount } from "svelte";
 import { browser } from "$app/environment";
+import { page } from "$app/stores";
 import { Package, X } from "lucide-svelte";
-import { queryStore, queryStoreOne, queryCommentsFromStore, watchEvent, fetchEvents, parseApp, parseRelease, initNostrService, fetchProfile, fetchComments, fetchCommentRepliesByE, fetchZaps, parseComment, parseZapReceipt, encodeAppNaddr, publishComment, } from "$lib/nostr";
-import { parseAppStack } from "$lib/nostr/models";
-import { getApps } from "$lib/stores/nostr.svelte.js";
-import AppSmallCard from "$lib/components/cards/AppSmallCard.svelte";
+import { queryStore, queryStoreOne, queryCommentsFromStore, parseApp, parseRelease, fetchProfile, fetchProfilesBatch, fetchComments, fetchCommentRepliesByE, fetchZaps, parseComment, parseZapReceipt, encodeAppNaddr, publishComment, } from "$lib/nostr";
 import SkeletonLoader from "$lib/components/common/SkeletonLoader.svelte";
 import { nip19 } from "nostr-tools";
-import { EVENT_KINDS, DEFAULT_CATALOG_RELAYS, PLATFORM_FILTER } from "$lib/config";
+import { EVENT_KINDS, PLATFORM_FILTER } from "$lib/config";
 import { wheelScroll } from "$lib/actions/wheelScroll.js";
 import AppPic from "$lib/components/common/AppPic.svelte";
 import ProfilePic from "$lib/components/common/ProfilePic.svelte";
@@ -25,8 +23,8 @@ const searchProfiles = $derived(createSearchProfilesFunction(() => getCurrentPub
 const searchEmojis = $derived(createSearchEmojisFunction(getCurrentPubkey()));
 const error = $derived(data.error ?? null);
 // Local state - start with prerendered data
-let app = $state(data.app);
-let latestRelease = $state(data.latestRelease);
+let app = $state(null);
+let latestRelease = $state(null);
 let refreshing = $state(false);
 // Publisher profile
 let publisherProfile = $state(null);
@@ -53,9 +51,7 @@ let releaseNotesExpanded = $state(new Set());
 let downloadModalOpen = $state(false);
 let getStartedModalOpen = $state(false);
 let securityModalOpen = $state(false);
-let suggestionApps = $state([]);
-let suggestionsLoading = $state(true);
-let suggestionsModalOpen = $state(false);
+const appNaddr = $derived($page.params.naddr ?? "");
 const otherZaps = $derived(zaps.map((z) => {
     const prof = z.senderPubkey ? zapperProfiles.get(z.senderPubkey) : undefined;
     return {
@@ -197,26 +193,30 @@ async function loadComments() {
     try {
         const events = await fetchComments(app.pubkey, app.dTag);
         comments = events.map(parseComment);
-        // Load profiles for comment authors
-        const uniquePubkeys = [...new Set(comments.map((c) => c.pubkey))];
+        // Load profiles for comment authors aggressively in one batched request.
+        const uniquePubkeys = [...new Set(comments.map((c) => c.pubkey).filter(Boolean))];
         profilesLoading = true;
-        await Promise.all(uniquePubkeys.map(async (pubkey) => {
+        const fetchedProfiles = await fetchProfilesBatch(uniquePubkeys);
+        const nextProfiles = { ...profiles };
+        for (const pubkey of uniquePubkeys) {
+            const event = fetchedProfiles.get(pubkey);
+            if (!event?.content) {
+                nextProfiles[pubkey] = nextProfiles[pubkey] ?? null;
+                continue;
+            }
             try {
-                const event = await fetchProfile(pubkey);
-                if (event) {
-                    const content = JSON.parse(event.content);
-                    profiles[pubkey] = {
-                        displayName: content.display_name || content.displayName,
-                        name: content.name,
-                        picture: content.picture,
-                    };
-                    profiles = profiles;
-                }
+                const content = JSON.parse(event.content);
+                nextProfiles[pubkey] = {
+                    displayName: content.display_name || content.displayName,
+                    name: content.name,
+                    picture: content.picture,
+                };
             }
             catch {
-                profiles[pubkey] = null;
+                nextProfiles[pubkey] = nextProfiles[pubkey] ?? null;
             }
-        }));
+        }
+        profiles = nextProfiles;
         profilesLoading = false;
     }
     catch (err) {
@@ -338,25 +338,26 @@ async function hydrateZapperProfiles() {
         }
     }
     zapperProfiles = new Map(nextZapperProfiles);
-    const missing = uniqueSenders.filter((pk) => !nextZapperProfiles.has(pk)).slice(0, 20);
-    await Promise.all(missing.map(async (pubkey) => {
+    const missing = uniqueSenders.filter((pk) => !nextZapperProfiles.has(pk)).slice(0, 40);
+    const fetched = await fetchProfilesBatch(missing);
+    for (const pubkey of missing) {
+        const event = fetched.get(pubkey);
+        if (!event?.content)
+            continue;
         try {
-            const event = await fetchProfile(pubkey);
-            if (event?.content) {
-                const content = JSON.parse(event.content);
-                const profile = {
-                    displayName: content.display_name ?? content.name,
-                    name: content.name,
-                    picture: content.picture,
-                };
-                nextZapperProfiles.set(pubkey, profile);
-                zapperProfiles = new Map(nextZapperProfiles);
-            }
+            const content = JSON.parse(event.content);
+            const profile = {
+                displayName: content.display_name ?? content.name,
+                name: content.name,
+                picture: content.picture,
+            };
+            nextZapperProfiles.set(pubkey, profile);
         }
         catch {
-            /* ignore */
+            /* ignore malformed profile */
         }
-    }));
+    }
+    zapperProfiles = new Map(nextZapperProfiles);
 }
 async function handleCommentSubmit(event) {
     const userPubkey = getCurrentPubkey();
@@ -396,7 +397,7 @@ async function handleCommentSubmit(event) {
         }
         else {
             try {
-                const event = await fetchProfile(userPubkey);
+                const event = (await fetchProfilesBatch([userPubkey])).get(userPubkey);
                 if (event?.content) {
                     const content = JSON.parse(event.content);
                     profiles = { ...profiles, [userPubkey]: { displayName: content.display_name ?? content.displayName, name: content.name, picture: content.picture } };
@@ -414,12 +415,10 @@ async function handleCommentSubmit(event) {
             err instanceof Error ? err.message : "Comment could not be published to any relay.";
     }
 }
-async function loadReleases(aTag) {
+async function loadReleases() {
     releasesLoading = true;
     try {
-        const events = await fetchEvents({ kinds: [EVENT_KINDS.RELEASE], "#a": [aTag], ...PLATFORM_FILTER, limit: 50 }, { relays: [...DEFAULT_CATALOG_RELAYS] });
-        const sorted = events.sort((a, b) => b.created_at - a.created_at);
-        releases = sorted.map((e) => parseRelease(e));
+        releases = data.releases ?? [];
         // Re-fetch zaps with release/metadata ids so we get #e-tagged zaps (legacy, match previous behavior)
         const latest = releases[0];
         if (latest && app?.pubkey && app?.dTag) {
@@ -435,117 +434,12 @@ async function loadReleases(aTag) {
         releasesLoading = false;
     }
 }
-async function loadSuggestions(currentApp) {
-    suggestionsLoading = true;
-    suggestionApps = [];
-    const currentKey = `${currentApp.pubkey}:${currentApp.dTag}`;
-    const seen = new Set();
-    const collected = [];
-    function addApp(a) {
-        const key = `${a.pubkey}:${a.dTag}`;
-        if (key === currentKey || seen.has(key))
-            return;
-        seen.add(key);
-        collected.push(a);
-    }
-    const relays = [...DEFAULT_CATALOG_RELAYS];
-    try {
-        // 1. Apps in stacks by this publisher — fetch from relays
-        const stackEvents = await fetchEvents({
-            kinds: [EVENT_KINDS.APP_STACK],
-            authors: [currentApp.pubkey],
-            limit: 30,
-        }, { relays });
-        for (const ev of stackEvents) {
-            const stack = parseAppStack(ev);
-            for (const ref of stack.appRefs) {
-                if (ref.kind !== EVENT_KINDS.APP)
-                    continue;
-                const appEvs = await fetchEvents({
-                    kinds: [EVENT_KINDS.APP],
-                    authors: [ref.pubkey],
-                    "#d": [ref.identifier],
-                    ...PLATFORM_FILTER,
-                    limit: 1,
-                }, { relays });
-                const appEv = appEvs[0];
-                if (appEv)
-                    addApp(parseApp(appEv));
-            }
-        }
-        // 2. Apps with same t tags — fetch from relays
-        const raw = currentApp.rawEvent;
-        const tTags = (raw?.tags?.filter((t) => t[0] === "t").map((t) => t[1]).filter(Boolean) ?? []);
-        for (const t of tTags) {
-            const events = await fetchEvents({ kinds: [EVENT_KINDS.APP], "#t": [t], ...PLATFORM_FILTER, limit: 25 }, { relays });
-            for (const ev of events)
-                addApp(parseApp(ev));
-        }
-        // 3. Fetch apps from relays, then filter by first 10 (4+ letter) words from description
-        const words = (currentApp.description ?? "")
-            .split(/\s+/)
-            .filter((w) => w.length >= 4)
-            .slice(0, 10);
-        if (words.length > 0) {
-            const allAppEvents = await fetchEvents({ kinds: [EVENT_KINDS.APP], ...PLATFORM_FILTER, limit: 150 }, { relays });
-            for (const ev of allAppEvents) {
-                const a = parseApp(ev);
-                const key = `${a.pubkey}:${a.dTag}`;
-                if (key === currentKey)
-                    continue;
-                const lowerDesc = (a.description ?? "").toLowerCase();
-                const lowerName = (a.name ?? "").toLowerCase();
-                const aRaw = a.rawEvent;
-                const inTags = aRaw?.tags?.some((tag) => tag.some((v, i) => i > 0 &&
-                    words.some((w) => String(v).toLowerCase().includes(w.toLowerCase())))) ?? false;
-                const matches = !!lowerDesc &&
-                    words.some((w) => lowerDesc.includes(w.toLowerCase()) ||
-                        lowerName.includes(w.toLowerCase()) ||
-                        inTags);
-                if (matches)
-                    addApp(a);
-            }
-        }
-        let result = collected.slice(0, 8);
-        // Only if we didn't find enough related apps, load fallback (recent apps from relays)
-        if (result.length < 8) {
-            const fallbackEvents = await fetchEvents({ kinds: [EVENT_KINDS.APP], ...PLATFORM_FILTER, limit: 30 }, { relays });
-            const byCreated = fallbackEvents
-                .map((ev) => parseApp(ev))
-                .filter((a) => {
-                const k = `${a.pubkey}:${a.dTag}`;
-                return k !== currentKey && !seen.has(k);
-            })
-                .sort((a, b) => b.createdAt - a.createdAt)
-                .slice(0, 8 - result.length);
-            result = [...result, ...byCreated];
-        }
-        suggestionApps = result;
-    }
-    catch (e) {
-        console.error("Suggestions load failed", e);
-        const fromStore = getApps().filter((a) => `${a.pubkey}:${a.dTag}` !== currentKey).slice(0, 8);
-        if (fromStore.length > 0) {
-            suggestionApps = fromStore;
-        }
-        else {
-            const allAppEvents = queryStore({ kinds: [EVENT_KINDS.APP], ...PLATFORM_FILTER, limit: 30 });
-            suggestionApps = allAppEvents
-                .map((ev) => parseApp(ev))
-                .filter((a) => `${a.pubkey}:${a.dTag}` !== currentKey)
-                .sort((a, b) => b.createdAt - a.createdAt)
-                .slice(0, 8);
-        }
-    }
-    finally {
-        suggestionsLoading = false;
-    }
-}
 onMount(async () => {
     if (!browser || !data.app)
         return;
-    // Ensure IndexedDB cache (including profiles) is in EventStore before any queries (ARCHITECTURE: local-first)
-    await initNostrService();
+    app = data.app;
+    latestRelease = data.latestRelease;
+    releases = data.releases ?? [];
     const aTagValue = `${EVENT_KINDS.APP}:${data.app.pubkey}:${data.app.dTag}`;
     // Sync: query EventStore immediately
     const cachedRelease = queryStoreOne({ kinds: [EVENT_KINDS.RELEASE], "#a": [aTagValue], ...PLATFORM_FILTER });
@@ -596,31 +490,12 @@ onMount(async () => {
         const allCommentIds = await loadCommentReplies();
         loadZapsByMainFeedIds([...allCommentIds, ...mainFeedZapIds]);
     });
-    // Background refresh from relays and load releases
+    // Load releases from prerendered page data
     const schedule = "requestIdleCallback" in window
         ? window.requestIdleCallback
         : (cb) => setTimeout(cb, 1);
     schedule(async () => {
-        await initNostrService();
-        loadReleases(aTagValue);
-        loadSuggestions(data.app);
-        refreshing = true;
-        let pending = 2;
-        const done = () => {
-            pending--;
-            if (pending === 0)
-                refreshing = false;
-        };
-        watchEvent({ kinds: [EVENT_KINDS.APP], authors: [data.app.pubkey], "#d": [data.app.dTag], ...PLATFORM_FILTER }, { relays: DEFAULT_CATALOG_RELAYS }, (freshEvent) => {
-            if (freshEvent)
-                app = parseApp(freshEvent);
-            done();
-        });
-        watchEvent({ kinds: [EVENT_KINDS.RELEASE], "#a": [aTagValue], ...PLATFORM_FILTER }, { relays: DEFAULT_CATALOG_RELAYS }, (freshEvent) => {
-            if (freshEvent)
-                latestRelease = parseRelease(freshEvent);
-            done();
-        });
+        loadReleases();
     });
 });
 function retryLoad() {
@@ -839,47 +714,6 @@ function toggleReleaseNotesExpanded(id) {
           </div>
         </button>
 
-        <!-- Suggestions Panel (desktop only; opens modal on click) -->
-        <button type="button" class="info-panel panel-similar-desktop text-left w-full" onclick={() => (suggestionsModalOpen = true)}>
-          <div class="panel-header">
-            <span class="text-base font-semibold" style="color: hsl(var(--foreground));">Suggestions</span>
-          </div>
-          <div class="similar-apps-row flex gap-2">
-            {#if suggestionsLoading}
-              {#each Array(8) as _}
-                <div class="suggestion-skeleton">
-                  <SkeletonLoader />
-                </div>
-              {/each}
-            {:else}
-              {#each suggestionApps as sug}
-                <AppPic size="md" name={sug.name} iconUrl={sug.icon} identifier={sug.dTag} />
-              {/each}
-            {/if}
-          </div>
-        </button>
-      </div>
-
-      <!-- Suggestions Panel (mobile only; opens modal on click) -->
-      <div class="info-panels-secondary">
-        <button type="button" class="info-panel panel-similar-mobile text-left w-full" onclick={() => (suggestionsModalOpen = true)}>
-          <div class="panel-header">
-            <span class="text-base font-semibold" style="color: hsl(var(--foreground));">Suggestions</span>
-          </div>
-          <div class="similar-apps-row flex gap-2">
-            {#if suggestionsLoading}
-              {#each Array(8) as _}
-                <div class="suggestion-skeleton suggestion-skeleton-xs">
-                  <SkeletonLoader />
-                </div>
-              {/each}
-            {:else}
-              {#each suggestionApps as sug}
-                <AppPic size="xs" name={sug.name} iconUrl={sug.icon} identifier={sug.dTag} />
-              {/each}
-            {/if}
-          </div>
-        </button>
       </div>
     </div>
 
@@ -1081,32 +915,6 @@ function toggleReleaseNotesExpanded(id) {
       </Modal>
     {/if}
 
-    <!-- Suggestions Modal -->
-    <Modal
-      bind:open={suggestionsModalOpen}
-      ariaLabel="Suggestions"
-      maxHeight={90}
-      class="suggestions-modal"
-    >
-      <div class="suggestions-modal-inner">
-        <div class="suggestions-modal-header">
-          <h2 class="text-display text-4xl text-foreground text-center mb-3">Suggestions</h2>
-          <p class="suggestions-modal-desc text-sm text-center" style="color: hsl(var(--white66));">
-            The suggestion filter is very basic and dumb for now, while we are building smart search and suggestions.
-          </p>
-        </div>
-        <div class="suggestions-modal-list">
-          {#each suggestionApps as sug}
-            {@const sugHref = sug.naddr ? `/apps/${sug.naddr}` : `/apps/${encodeAppNaddr(sug.pubkey, sug.dTag)}`}
-            <AppSmallCard
-              app={{ name: sug.name, icon: sug.icon, description: sug.description, descriptionHtml: sug.descriptionHtml, dTag: sug.dTag }}
-              href={sugHref}
-            />
-          {/each}
-        </div>
-      </div>
-    </Modal>
-
     <!-- Download Modal -->
     {#if app}
       <DownloadModal
@@ -1198,47 +1006,6 @@ function toggleReleaseNotesExpanded(id) {
     }
   }
 
-  .suggestion-skeleton {
-    flex-shrink: 0;
-    width: 48px;
-    height: 48px;
-    border-radius: 12px;
-    overflow: hidden;
-  }
-  .suggestion-skeleton-xs {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-  }
-  .suggestions-modal-inner {
-    padding: 0;
-  }
-  .suggestions-modal-header {
-    padding: 1rem 1.5rem;
-  }
-  .suggestions-modal-desc {
-    max-width: 36rem;
-    margin-left: auto;
-    margin-right: auto;
-    line-height: 1.5;
-  }
-  .suggestions-modal-list {
-    padding: 0 1rem 1.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    overflow-y: auto;
-  }
-  @media (min-width: 768px) {
-    .suggestions-modal-header {
-      padding: 1.5rem 2rem;
-    }
-    .suggestions-modal-list {
-      padding: 0 2rem 2rem;
-      gap: 0.75rem;
-    }
-  }
-
   .panel-releases {
     flex: 1;
     min-width: 0;
@@ -1246,16 +1013,7 @@ function toggleReleaseNotesExpanded(id) {
     flex-direction: column;
   }
 
-  .info-panels-secondary {
-    display: flex;
-    gap: 12px;
-  }
-
   @media (min-width: 768px) {
-    .info-panels-secondary {
-      display: none;
-    }
-
     .panel-security {
       flex: 1;
     }
@@ -1270,41 +1028,6 @@ function toggleReleaseNotesExpanded(id) {
     border-radius: 16px;
     padding: 8px 16px 10px;
     cursor: pointer;
-  }
-
-  .panel-similar-desktop {
-    display: none;
-    overflow: hidden;
-  }
-
-  .panel-similar-mobile {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-  }
-
-  .panel-similar-mobile .panel-header {
-    margin-bottom: 6px;
-  }
-
-  .similar-apps-row {
-    min-width: 0;
-    overflow: hidden;
-    /* Full-bleed to panel container edge so clip is at border, not inside padding */
-    margin-left: -16px;
-    margin-right: -16px;
-    padding-left: 16px;
-  }
-
-  @media (min-width: 768px) {
-    .panel-similar-desktop {
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      flex: 1;
-      min-width: 0;
-      padding-bottom: 16px;
-    }
   }
 
   /*

@@ -3,11 +3,11 @@ import { onMount } from 'svelte';
 import { browser } from '$app/environment';
 import AppStackCard from '$lib/components/cards/AppStackCard.svelte';
 import SkeletonLoader from '$lib/components/common/SkeletonLoader.svelte';
-import { getStacks, getHasMore as getStacksHasMore, isLoadingMore as isStacksLoadingMore, isStacksInitialized, scheduleStacksRefresh, loadMoreStacks, resolveStackApps } from '$lib/stores/stacks.svelte.js';
+import { getStacks, getHasMore as getStacksHasMore, isLoadingMore as isStacksLoadingMore, isStacksInitialized, scheduleStacksRefresh, loadMoreStacks, resolveStackApps, initWithPrerenderedStacks } from '$lib/stores/stacks.svelte.js';
 import { nip19 } from 'nostr-tools';
-import { fetchEvents } from '$lib/nostr/service';
-import { DEFAULT_CATALOG_RELAYS, EVENT_KINDS } from '$lib/config';
+import { fetchProfilesBatch } from '$lib/nostr/service';
 import { parseProfile, encodeStackNaddr } from '$lib/nostr/models';
+let { data } = $props();
 // Reactive state from store
 const stacks = $derived(getStacks());
 const hasMore = $derived(getStacksHasMore());
@@ -16,8 +16,35 @@ const initialized = $derived(isStacksInitialized());
 // Resolved stacks with apps and creators
 let resolvedStacks = $state([]);
 let loading = $state(true);
+function isHexPubkey(value) {
+    return typeof value === 'string' && /^[0-9a-f]{64}$/i.test(value.trim());
+}
+function hasIdentifier(value) {
+    return typeof value === 'string' && value.trim().length > 0;
+}
+function safeEncodeStackNaddr(pubkey, dTag) {
+    if (!isHexPubkey(pubkey) || !hasIdentifier(dTag))
+        return '';
+    try {
+        return encodeStackNaddr(pubkey.trim().toLowerCase(), dTag.trim());
+    }
+    catch {
+        return '';
+    }
+}
+function safeNpub(pubkey) {
+    if (!isHexPubkey(pubkey))
+        return '';
+    try {
+        return nip19.npubEncode(pubkey.trim().toLowerCase());
+    }
+    catch {
+        return '';
+    }
+}
 function getStackUrl(stack) {
-    return `/stacks/${encodeStackNaddr(stack.pubkey, stack.dTag)}`;
+    const naddr = safeEncodeStackNaddr(stack?.pubkey, stack?.dTag);
+    return naddr ? `/stacks/${naddr}` : '#';
 }
 async function loadResolvedStacks() {
     if (!browser)
@@ -28,19 +55,21 @@ async function loadResolvedStacks() {
     }
     loading = true;
     try {
+        const creatorPubkeys = [...new Set(stacks.map((stack) => stack.pubkey).filter((pk) => isHexPubkey(pk)))];
+        const creatorEvents = await fetchProfilesBatch(creatorPubkeys);
         const resolved = await Promise.all(stacks.map(async (stack) => {
             const stackApps = await resolveStackApps(stack);
             let creator = undefined;
-            if (stack.pubkey) {
+            if (isHexPubkey(stack.pubkey)) {
                 try {
-                    const profileEvents = await fetchEvents({ kinds: [EVENT_KINDS.PROFILE], authors: [stack.pubkey] }, { relays: [...DEFAULT_CATALOG_RELAYS] });
-                    if (profileEvents.length > 0) {
-                        const profile = parseProfile(profileEvents[0]);
+                    const profileEvent = creatorEvents.get(stack.pubkey);
+                    if (profileEvent) {
+                        const profile = parseProfile(profileEvent);
                         creator = {
                             name: profile.displayName || profile.name,
                             picture: profile.picture,
                             pubkey: stack.pubkey,
-                            npub: nip19.npubEncode(stack.pubkey)
+                            npub: safeNpub(stack.pubkey)
                         };
                     }
                 }
@@ -79,6 +108,9 @@ $effect(() => {
 onMount(() => {
     if (!browser)
         return;
+    if (!isStacksInitialized()) {
+        initWithPrerenderedStacks(data.stacks ?? [], data.resolvedStacks ?? [], data.nextCursor ?? null, data.seedEvents ?? []);
+    }
     scheduleStacksRefresh();
 });
 </script>

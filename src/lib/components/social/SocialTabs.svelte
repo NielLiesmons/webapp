@@ -13,8 +13,8 @@ import BubbleSkeleton from "./BubbleSkeleton.svelte";
 import DetailsTab from "./DetailsTab.svelte";
 import Spinner from "$lib/components/common/Spinner.svelte";
 import { Zap } from "$lib/components/icons";
-import { queryStoreOne, fetchEvent } from "$lib/nostr";
-import { DEFAULT_CATALOG_RELAYS, EVENT_KINDS, PLATFORM_FILTER } from "$lib/config";
+import { queryStoreOne } from "$lib/nostr";
+import { EVENT_KINDS, PLATFORM_FILTER } from "$lib/config";
 let { app = {}, stack = null, version = "", publisherProfile = null, zaps = [], zapperProfiles = new Map(), className = "", comments = [], commentsLoading = false, commentsError = "", zapsLoading = false, profiles = {}, profilesLoading = false, getAppSlug = () => "", getStackSlug = () => "", pubkeyToNpub = () => "", searchProfiles = async () => [], searchEmojis = async () => [], onCommentSubmit, onZapReceived, onGetStarted, mainEventIds = [], } = $props();
 const staticTabs = [
     { id: "comments", label: "Comments" },
@@ -52,9 +52,7 @@ $effect(() => {
         detailsRawData = fromStore;
         return;
     }
-    fetchEvent(filter, { relays: [...DEFAULT_CATALOG_RELAYS] }).then((e) => {
-        detailsRawData = e ?? null;
-    });
+    detailsRawData = null;
 });
 const totalZapAmount = $derived(zaps.reduce((sum, zap) => sum + (zap.amountSats || 0), 0));
 /** Main feed: zaps on the main event (app/stack). Include zaps with no e-tag or e-tag in mainEventIds (e.g. app id, release id). */
@@ -63,6 +61,19 @@ const zapsOnMainEvent = $derived(zaps.filter((z) => z.comment &&
     z.comment.trim() &&
     (!z.zappedEventId || (z.zappedEventId && mainIdsSet.has(z.zappedEventId.toLowerCase())))));
 const totalCommentCount = $derived(comments.length + zapsOnMainEvent.length);
+function safeNpubFromPubkey(pubkey) {
+    if (typeof pubkey !== "string")
+        return "";
+    const normalized = pubkey.trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(normalized))
+        return "";
+    try {
+        return pubkeyToNpub(normalized) || "";
+    }
+    catch {
+        return "";
+    }
+}
 function formatSats(amount) {
     if (amount >= 1000000)
         return `${(amount / 1000000).toFixed(1)}M`;
@@ -73,7 +84,7 @@ function formatSats(amount) {
 function enrichComment(comment) {
     const profile = profiles[comment.pubkey] ?? zapperProfiles.get(comment.pubkey) ?? undefined;
     const hasProfile = profile !== undefined && profile !== null;
-    const npub = comment.npub ?? pubkeyToNpub(comment.pubkey);
+    const npub = comment.npub || safeNpubFromPubkey(comment.pubkey);
     return {
         ...comment,
         displayName: profile?.displayName ||
@@ -209,15 +220,16 @@ const threadZapsByRootId = $derived.by(() => {
 const enrichedZaps = $derived(zaps
     .map((zap) => {
     const profile = zap.senderPubkey ? zapperProfiles.get(zap.senderPubkey) : undefined;
+    const senderNpub = safeNpubFromPubkey(zap.senderPubkey);
     const displayName = profile?.displayName?.trim() ||
         profile?.name?.trim() ||
-        (zap.senderPubkey ? `${pubkeyToNpub(zap.senderPubkey).slice(0, 12)}…` : "Anonymous");
+        (senderNpub ? `${senderNpub.slice(0, 12)}…` : "Anonymous");
     return {
         ...zap,
         type: "zap",
         displayName,
         avatarUrl: profile?.picture?.trim() || null,
-        profileUrl: zap.senderPubkey ? `/profile/${pubkeyToNpub(zap.senderPubkey)}` : "",
+        profileUrl: senderNpub ? `/profile/${senderNpub}` : "",
         timestamp: zap.createdAt,
     };
 })
@@ -398,7 +410,7 @@ const combinedFeed = $derived.by(() => {
           ? (stack.pubkey && stack.dTag ? getStackSlug(stack.pubkey, stack.dTag) : "")
           : (app?.pubkey && app?.dTag ? getAppSlug(app.pubkey, app.dTag) : "")}
         publicationLabel={stack ? "Stack" : "App"}
-        npub={(stack?.pubkey ?? app?.pubkey) ? pubkeyToNpub(stack?.pubkey ?? app?.pubkey ?? "") : ""}
+        npub={safeNpubFromPubkey(stack?.pubkey ?? app?.pubkey)}
         pubkey={stack?.pubkey ?? app?.pubkey ?? ""}
         rawData={detailsRawData ?? (stack ? (stack.rawEvent ?? stack) : (app?.rawEvent ?? app))}
       />

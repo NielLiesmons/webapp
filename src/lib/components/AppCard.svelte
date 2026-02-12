@@ -2,8 +2,8 @@
 import { pushState, replaceState } from '$app/navigation';
 import { page } from '$app/stores';
 import { get } from 'svelte/store';
-import { queryStore, fetchEvents, parseRelease } from '$lib/nostr';
-import { EVENT_KINDS, DEFAULT_CATALOG_RELAYS, PLATFORM_FILTER } from '$lib/config';
+import { queryStore, parseRelease } from '$lib/nostr';
+import { EVENT_KINDS, PLATFORM_FILTER } from '$lib/config';
 let { app } = $props();
 // Track prefetched apps to avoid duplicate fetches
 const prefetched = new Set();
@@ -20,8 +20,6 @@ async function handleMouseEnter() {
     const release = parseRelease(releases[0]);
     if (release.artifacts.length === 0)
         return;
-    // Prefetch file metadata (1063) via cache cascade: EventStore → IndexedDB → Relays
-    await fetchEvents({ kinds: [EVENT_KINDS.FILE_METADATA], ids: release.artifacts }, { relays: [...DEFAULT_CATALOG_RELAYS] });
 }
 function handleClick(e) {
     // Prevent default navigation

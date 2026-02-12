@@ -1,13 +1,13 @@
 <script lang="js">
 import { onMount } from 'svelte';
-import { browser } from '$app/environment';
+import { browser, dev } from '$app/environment';
 import { page } from '$app/stores';
 import { initAuth } from '$lib/stores/auth.svelte.js';
 import { initCatalogs } from '$lib/stores/catalogs.svelte.js';
 import { initOnlineStatus, isOnline } from '$lib/stores/online.svelte.js';
 import { isBackgroundRefreshing } from '$lib/stores/refresh-indicator.svelte.js';
-import { initNostrService } from '$lib/nostr';
 import { startProfileSearchBackground } from '$lib/services/profile-search';
+import { IDB_NAME } from '$lib/config';
 import Header from '$lib/components/layout/Header.svelte';
 import Footer from '$lib/components/layout/Footer.svelte';
 import NavigationProgress from '$lib/components/layout/NavigationProgress.svelte';
@@ -16,6 +16,7 @@ let { children } = $props();
 let online = $derived(isOnline());
 let backgroundRefreshing = $derived(isBackgroundRefreshing());
 const path = $derived($page.url.pathname);
+let isClearingLocalData = $state(false);
 // ReachKit has its own layout (header + footer)
 let isReachKit = $derived(path.startsWith('/studio/reachkit'));
 // Determine header variant based on route
@@ -48,14 +49,65 @@ onMount(async () => {
         initAuth();
         // Initialize online/offline detection
         initOnlineStatus();
-        // Initialize Nostr service (cache, store, persistence)
-        await initNostrService();
         // Start background load of default profiles for @ mention suggestions (local-first)
         startProfileSearchBackground();
         // Initialize catalog preferences from localStorage
         initCatalogs();
     }
 });
+
+function deleteIndexedDb(name) {
+    return new Promise((resolve) => {
+        if (!name) {
+            resolve(false);
+            return;
+        }
+
+        try {
+            const request = indexedDB.deleteDatabase(name);
+            request.onsuccess = () => resolve(true);
+            request.onerror = () => resolve(false);
+            request.onblocked = () => resolve(false);
+        } catch {
+            resolve(false);
+        }
+    });
+}
+
+async function clearAllLocalCaches() {
+    if (!browser || isClearingLocalData) return;
+
+    const confirmed = window.confirm('Clear all IndexedDB and Cache Storage data for this app?');
+    if (!confirmed) return;
+
+    isClearingLocalData = true;
+
+    try {
+        if (typeof indexedDB !== 'undefined') {
+            let dbNames = [];
+
+            if (typeof indexedDB.databases === 'function') {
+                const databases = await indexedDB.databases();
+                dbNames = databases.map((entry) => entry?.name).filter(Boolean);
+            }
+            else {
+                // Fallback for browsers without indexedDB.databases()
+                dbNames = [IDB_NAME];
+            }
+
+            await Promise.all(dbNames.map((name) => deleteIndexedDb(name)));
+        }
+
+        if (typeof caches !== 'undefined') {
+            const cacheKeys = await caches.keys();
+            await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+        }
+
+        window.location.reload();
+    } finally {
+        isClearingLocalData = false;
+    }
+}
 </script>
 
 <div class="min-h-screen relative bg-background">
@@ -95,6 +147,20 @@ onMount(async () => {
 			{#if !isDetailPage}
 				<Footer />
 			{/if}
+
+			{#if dev && !isReachKit}
+				<div class="cache-bust-control">
+					<button
+						type="button"
+						class="btn-secondary-small"
+						onclick={clearAllLocalCaches}
+						disabled={isClearingLocalData}
+						title="Temporary dev tool: clear IndexedDB + caches"
+					>
+						{isClearingLocalData ? 'Clearing...' : 'Bust local cache'}
+					</button>
+				</div>
+			{/if}
 		{/if}
 	</div>
 </div>
@@ -130,6 +196,13 @@ onMount(async () => {
 		animation: refresh-pulse 1.2s ease-in-out infinite;
 		z-index: 9999;
 		pointer-events: none;
+	}
+
+	.cache-bust-control {
+		position: fixed;
+		right: 1rem;
+		bottom: 1rem;
+		z-index: 1200;
 	}
 
 	@keyframes refresh-pulse {

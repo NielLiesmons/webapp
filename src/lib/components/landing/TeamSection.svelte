@@ -6,7 +6,7 @@
 	import SkeletonLoader from '$lib/components/common/SkeletonLoader.svelte';
 	import Modal from '$lib/components/common/Modal.svelte';
 	import { Zap, Send } from '$lib/components/icons';
-	import { initNostrService, fetchEvents, parseZapReceipt, fetchProfile } from '$lib/nostr';
+	import { fetchEvents, parseZapReceipt, fetchProfile } from '$lib/nostr';
 	import { DEFAULT_SOCIAL_RELAYS } from '$lib/config';
 	import {
 		hexToColor,
@@ -300,7 +300,6 @@
 			try {
 				if (zapRecipientPubkeys.length === 0) return;
 
-				await initNostrService();
 				const since = Math.floor(Date.now() / 1000) - THREE_MONTHS_SEC;
 				const receipts = await fetchEvents(
 					{

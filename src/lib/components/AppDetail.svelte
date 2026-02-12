@@ -2,8 +2,8 @@
 import { onMount } from 'svelte';
 import { browser } from '$app/environment';
 import { ReleaseCard } from '$lib/components';
-import { queryStoreOne, watchEvent, parseRelease, initNostrService } from '$lib/nostr';
-import { EVENT_KINDS, DEFAULT_CATALOG_RELAYS, PLATFORM_FILTER } from '$lib/config';
+import { queryStoreOne, parseRelease } from '$lib/nostr';
+import { EVENT_KINDS, PLATFORM_FILTER } from '$lib/config';
 import { renderMarkdown } from '$lib/utils/markdown';
 let { app, initialRelease = null } = $props();
 // Local state (set from initialRelease in onMount to avoid capturing stale reference)
@@ -19,20 +19,6 @@ onMount(() => {
     if (cachedRelease) {
         latestRelease = parseRelease(cachedRelease);
     }
-    // Background refresh from relays
-    const schedule = 'requestIdleCallback' in window
-        ? window.requestIdleCallback
-        : (cb) => setTimeout(cb, 1);
-    schedule(async () => {
-        await initNostrService();
-        refreshing = true;
-        watchEvent({ kinds: [EVENT_KINDS.RELEASE], '#a': [aTagValue], ...PLATFORM_FILTER }, { relays: DEFAULT_CATALOG_RELAYS }, (freshEvent) => {
-            if (freshEvent) {
-                latestRelease = parseRelease(freshEvent);
-            }
-            refreshing = false;
-        });
-    });
 });
 </script>
 

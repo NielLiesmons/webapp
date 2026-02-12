@@ -6,7 +6,7 @@ import AppSmallCard from '$lib/components/cards/AppSmallCard.svelte';
 import SkeletonLoader from '$lib/components/common/SkeletonLoader.svelte';
 import { parseApp } from '$lib/nostr/models';
 import { encodeAppNaddr } from '$lib/nostr/models';
-import { searchApps, initNostrService } from '$lib/nostr/service';
+import { searchApps } from '$lib/nostr/service';
 import { DEFAULT_CATALOG_RELAYS } from '$lib/config';
 import { getApps, getHasMore, isRefreshing, isLoadingMore, isStoreInitialized, initWithPrerenderedData, scheduleRefresh, loadMore } from '$lib/stores/nostr.svelte.js';
 const SCROLL_THRESHOLD = 800; // pixels from bottom to trigger load
@@ -63,7 +63,6 @@ async function runSearch(query) {
         return;
     searching = true;
     try {
-        await initNostrService();
         const events = await searchApps([...DEFAULT_CATALOG_RELAYS], query, { limit: 50 });
         // Deduplicate and parse
         const seen = new Set();

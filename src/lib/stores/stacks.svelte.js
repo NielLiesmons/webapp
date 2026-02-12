@@ -4,10 +4,9 @@
  * Provides reactive access to app stacks with cursor-based pagination.
  * Mirrors nostr.svelte.ts pattern for consistency.
  */
-import { initNostrService, fetchAppStacks, fetchEvents } from '$lib/nostr/service';
-import { parseAppStack, parseApp } from '$lib/nostr/models';
-import { DEFAULT_CATALOG_RELAYS, EVENT_KINDS, PLATFORM_FILTER } from '$lib/config';
 import { setBackgroundRefreshing } from '$lib/stores/refresh-indicator.svelte.js';
+import { parseChunkHtmlPayload } from '$lib/utils/chunk-payload.js';
+import { persistEventsInBackground } from '$lib/nostr/cache-writer.js';
 const PAGE_SIZE = 20;
 // ============================================================================
 // Reactive State
@@ -58,8 +57,9 @@ export function setResolvedStacks(stacks) {
 /**
  * Initialize with prerendered data.
  */
-export function initWithPrerenderedStacks(prerenderedStacks, nextCursor) {
+export function initWithPrerenderedStacks(prerenderedStacks, prerenderedResolvedStacks, nextCursor, seedEvents = []) {
     stacks = prerenderedStacks;
+    resolvedStacksCache = prerenderedResolvedStacks ?? [];
     cursor = nextCursor;
     hasMore = nextCursor !== null;
     seenStacks.clear();
@@ -67,6 +67,20 @@ export function initWithPrerenderedStacks(prerenderedStacks, nextCursor) {
         seenStacks.add(`${stack.pubkey}:${stack.dTag}`);
     }
     initialized = true;
+    persistEventsInBackground(seedEvents);
+}
+
+async function fetchStacksPageFromServer(limit, nextCursor) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (nextCursor !== undefined && nextCursor !== null) {
+        params.set('cursor', String(nextCursor));
+    }
+    const response = await fetch(`/stacks/chunk?${params.toString()}`);
+    if (!response.ok) {
+        throw new Error(`Stacks chunk failed: ${response.status}`);
+    }
+    const html = await response.text();
+    return parseChunkHtmlPayload(html);
 }
 /**
  * Refresh stacks from relays (background, non-blocking).
@@ -79,13 +93,12 @@ export async function refreshStacksFromRelays() {
     refreshing = true;
     setBackgroundRefreshing(true);
     try {
-        await initNostrService();
-        const { stacks: freshStacks, nextCursor } = await fetchAppStacks([...DEFAULT_CATALOG_RELAYS], PAGE_SIZE);
+        const { stacks: freshStacks, resolvedStacks: freshResolvedStacks = [], nextCursor, seedEvents = [] } = await fetchStacksPageFromServer(PAGE_SIZE);
+        persistEventsInBackground(seedEvents);
         if (freshStacks.length > 0) {
             const parsed = [];
             const newSeen = new Set();
-            for (const event of freshStacks) {
-                const stack = parseAppStack(event);
+            for (const stack of freshStacks) {
                 const key = `${stack.pubkey}:${stack.dTag}`;
                 if (!newSeen.has(key)) {
                     newSeen.add(key);
@@ -93,6 +106,7 @@ export async function refreshStacksFromRelays() {
                 }
             }
             stacks = parsed;
+            resolvedStacksCache = freshResolvedStacks;
             cursor = nextCursor;
             hasMore = nextCursor !== null;
             seenStacks.clear();
@@ -120,12 +134,11 @@ export async function loadMoreStacks() {
         return;
     loadingMore = true;
     try {
-        await initNostrService();
-        const { stacks: moreStacks, nextCursor } = await fetchAppStacks([...DEFAULT_CATALOG_RELAYS], PAGE_SIZE, cursor);
+        const { stacks: moreStacks, resolvedStacks: moreResolvedStacks = [], nextCursor, seedEvents = [] } = await fetchStacksPageFromServer(PAGE_SIZE, cursor);
+        persistEventsInBackground(seedEvents);
         if (moreStacks.length > 0) {
             const newStacks = [];
-            for (const event of moreStacks) {
-                const stack = parseAppStack(event);
+            for (const stack of moreStacks) {
                 const key = `${stack.pubkey}:${stack.dTag}`;
                 if (!seenStacks.has(key)) {
                     seenStacks.add(key);
@@ -134,6 +147,9 @@ export async function loadMoreStacks() {
             }
             if (newStacks.length > 0) {
                 stacks = [...stacks, ...newStacks];
+            }
+            if (moreResolvedStacks.length > 0) {
+                resolvedStacksCache = [...resolvedStacksCache, ...moreResolvedStacks];
             }
         }
         cursor = nextCursor;
@@ -152,38 +168,11 @@ export async function loadMoreStacks() {
  * Returns the apps in the same order as the stack's appRefs.
  */
 export async function resolveStackApps(stack) {
-    if (typeof window === 'undefined' || stack.appRefs.length === 0)
+    if (!stack?.pubkey || !stack?.dTag)
         return [];
-    await initNostrService();
-    // Group refs by pubkey for batched fetching
-    const refsByPubkey = new Map();
-    for (const ref of stack.appRefs) {
-        const existing = refsByPubkey.get(ref.pubkey) || [];
-        existing.push(ref.identifier);
-        refsByPubkey.set(ref.pubkey, existing);
-    }
-    // Fetch all groups in parallel (one request per pubkey group)
-    const appsByKey = new Map();
-    await Promise.all(Array.from(refsByPubkey.entries()).map(async ([pubkey, identifiers]) => {
-        const events = await fetchEvents({
-            kinds: [EVENT_KINDS.APP],
-            authors: [pubkey],
-            '#d': identifiers,
-            ...PLATFORM_FILTER
-        }, { relays: [...DEFAULT_CATALOG_RELAYS] });
-        for (const ev of events) {
-            const app = parseApp(ev);
-            appsByKey.set(`${app.pubkey}:${app.dTag}`, app);
-        }
-    }));
-    // Return in original appRefs order
-    const apps = [];
-    for (const ref of stack.appRefs) {
-        const app = appsByKey.get(`${ref.pubkey}:${ref.identifier}`);
-        if (app)
-            apps.push(app);
-    }
-    return apps;
+    const key = `${stack.pubkey}:${stack.dTag}`;
+    const resolved = resolvedStacksCache.find((entry) => `${entry.stack.pubkey}:${entry.stack.dTag}` === key);
+    return resolved?.apps ?? [];
 }
 /**
  * Resolve apps for MULTIPLE stacks in a single batched operation.
@@ -195,46 +184,11 @@ export async function resolveStackApps(stack) {
 export async function resolveMultipleStackApps(stacksList) {
     if (typeof window === 'undefined' || stacksList.length === 0)
         return [];
-    await initNostrService();
-    // Collect all unique app refs across all stacks
-    const allRefs = new Map();
-    for (const stack of stacksList) {
-        for (const ref of stack.appRefs) {
-            allRefs.set(`${ref.pubkey}:${ref.identifier}`, ref);
-        }
-    }
-    // Batch fetch: group by pubkey, one request per group, all in parallel
-    const refsByPubkey = new Map();
-    for (const [, ref] of allRefs) {
-        const existing = refsByPubkey.get(ref.pubkey) || [];
-        existing.push(ref.identifier);
-        refsByPubkey.set(ref.pubkey, existing);
-    }
-    const appsByKey = new Map();
-    if (refsByPubkey.size > 0) {
-        await Promise.all(Array.from(refsByPubkey.entries()).map(async ([pubkey, identifiers]) => {
-            const events = await fetchEvents({
-                kinds: [EVENT_KINDS.APP],
-                authors: [pubkey],
-                '#d': identifiers,
-                ...PLATFORM_FILTER
-            }, { relays: [...DEFAULT_CATALOG_RELAYS] });
-            for (const ev of events) {
-                const app = parseApp(ev);
-                appsByKey.set(`${app.pubkey}:${app.dTag}`, app);
-            }
-        }));
-    }
-    // Map resolved apps back to each stack, preserving appRefs order
-    return stacksList.map((stack) => {
-        const apps = [];
-        for (const ref of stack.appRefs) {
-            const app = appsByKey.get(`${ref.pubkey}:${ref.identifier}`);
-            if (app)
-                apps.push(app);
-        }
-        return { stack, apps };
-    });
+    const resolved = await Promise.all(stacksList.map(async (stack) => ({
+        stack,
+        apps: await resolveStackApps(stack)
+    })));
+    return resolved;
 }
 /**
  * Schedule background refresh using requestIdleCallback.
@@ -254,6 +208,7 @@ export function scheduleStacksRefresh() {
  */
 export function resetStacksStore() {
     stacks = [];
+    resolvedStacksCache = [];
     cursor = null;
     hasMore = true;
     loadingMore = false;

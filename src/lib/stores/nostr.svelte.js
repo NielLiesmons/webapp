@@ -9,11 +9,9 @@
  *
  * @see spec/features/FEAT-001-apps-listing.md
  */
-import { initNostrService, fetchAppsByReleases } from '$lib/nostr/service';
-import { seedEventsToLocalCache } from '$lib/nostr/service';
-import { parseApp } from '$lib/nostr/models';
-import { DEFAULT_CATALOG_RELAYS } from '$lib/config';
 import { setBackgroundRefreshing } from '$lib/stores/refresh-indicator.svelte.js';
+import { parseChunkHtmlPayload } from '$lib/utils/chunk-payload.js';
+import { persistEventsInBackground } from '$lib/nostr/cache-writer.js';
 const PAGE_SIZE = 24; // Fetch extra to account for duplicates, ensures ~16+ unique apps
 // ============================================================================
 // Reactive State
@@ -32,7 +30,6 @@ let refreshing = $state(false);
 let initialized = $state(false);
 /** Set of seen app keys for deduplication */
 const seenApps = new Set();
-const seededEventIds = new Set();
 // ============================================================================
 // Public Reactive Getters
 // ============================================================================
@@ -69,27 +66,24 @@ export function initWithPrerenderedData(prerenderedApps, nextCursor, seedEvents 
     }
     // Mark store as initialized (client now owns the data)
     initialized = true;
-    if (seedEvents.length > 0) {
-        void seedPrerenderedEvents(seedEvents);
-    }
+    persistEventsInBackground(seedEvents);
 }
-async function seedPrerenderedEvents(events) {
-    const unseen = events.filter((event) => !seededEventIds.has(event.id));
-    if (unseen.length === 0)
-        return;
-    try {
-        await seedEventsToLocalCache(unseen);
-        for (const event of unseen) {
-            seededEventIds.add(event.id);
-        }
+
+async function fetchAppsPageFromServer(limit, nextCursor) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (nextCursor !== undefined && nextCursor !== null) {
+        params.set('cursor', String(nextCursor));
     }
-    catch (err) {
-        console.error('[NostrStore] Failed to seed prerendered events:', err);
+    const response = await fetch(`/apps/chunk?${params.toString()}`);
+    if (!response.ok) {
+        throw new Error(`Apps chunk failed: ${response.status}`);
     }
+    const html = await response.text();
+    return parseChunkHtmlPayload(html);
 }
 /**
- * Refresh first page from relays (background, non-blocking).
- * Updates UI reactively as data arrives.
+ * Refresh first page from server snapshot (background, non-blocking).
+ * Keeps client-side relay traffic limited to explicit search flows.
  */
 export async function refreshFromRelays() {
     if (refreshing)
@@ -99,14 +93,13 @@ export async function refreshFromRelays() {
     refreshing = true;
     setBackgroundRefreshing(true);
     try {
-        await initNostrService();
-        const { apps: freshApps, nextCursor } = await fetchAppsByReleases([...DEFAULT_CATALOG_RELAYS], PAGE_SIZE);
+        const { apps: freshApps, nextCursor, seedEvents = [] } = await fetchAppsPageFromServer(PAGE_SIZE);
+        persistEventsInBackground(seedEvents);
         if (freshApps.length > 0) {
-            // Parse and deduplicate, maintaining release order
+            // Deduplicate, maintaining release order
             const parsed = [];
             const newSeen = new Set();
-            for (const event of freshApps) {
-                const app = parseApp(event);
+            for (const app of freshApps) {
                 const key = `${app.pubkey}:${app.dTag}`;
                 if (!newSeen.has(key)) {
                     newSeen.add(key);
@@ -133,7 +126,7 @@ export async function refreshFromRelays() {
     }
 }
 /**
- * Load more apps (next page) from relays.
+ * Load more apps (next page) from server snapshot.
  * Uses cursor-based pagination per FEAT-001 spec.
  */
 export async function loadMore() {
@@ -143,13 +136,12 @@ export async function loadMore() {
         return;
     loadingMore = true;
     try {
-        await initNostrService();
-        const { apps: moreApps, nextCursor } = await fetchAppsByReleases([...DEFAULT_CATALOG_RELAYS], PAGE_SIZE, cursor);
+        const { apps: moreApps, nextCursor, seedEvents = [] } = await fetchAppsPageFromServer(PAGE_SIZE, cursor);
+        persistEventsInBackground(seedEvents);
         if (moreApps.length > 0) {
-            // Parse and add only new apps (not seen before)
+            // Add only new apps (not seen before)
             const newApps = [];
-            for (const event of moreApps) {
-                const app = parseApp(event);
+            for (const app of moreApps) {
                 const key = `${app.pubkey}:${app.dTag}`;
                 if (!seenApps.has(key)) {
                     seenApps.add(key);
@@ -194,5 +186,4 @@ export function resetStore() {
     refreshing = false;
     initialized = false;
     seenApps.clear();
-    seededEventIds.clear();
 }

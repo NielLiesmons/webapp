@@ -6,6 +6,7 @@
 		getProfileTextColor,
 		rgbToCssString
 	} from '$lib/utils/color.js';
+	import { toFirstPartyImageUrl } from '$lib/utils/media-proxy.js';
 	import SkeletonLoader from './SkeletonLoader.svelte';
 
 	/**
@@ -78,9 +79,10 @@
 	let imageError = false;
 
 	// Reactive computations
+	$: resolvedPictureUrl = toFirstPartyImageUrl(pictureUrl);
 	$: resolvedSize = sizeMap[size] || sizeMap.md;
 	$: fontSize = Math.round(resolvedSize * fontSizeRatio);
-	$: hasValidUrl = pictureUrl && pictureUrl.trim().length > 0;
+	$: hasValidUrl = resolvedPictureUrl && resolvedPictureUrl.trim().length > 0;
 	$: showImage = hasValidUrl && !imageError;
 
 	// Generate profile color from pubkey or name
@@ -128,7 +130,7 @@
 	}
 
 	// Reset states when URL changes
-	$: if (pictureUrl) {
+	$: if (resolvedPictureUrl) {
 		imageLoaded = false;
 		imageError = false;
 	}
@@ -165,7 +167,7 @@
 				</div>
 			{/if}
 			<img
-				src={pictureUrl}
+				src={resolvedPictureUrl}
 				alt={name ? `${name}'s avatar` : 'Profile avatar'}
 				class="profile-image"
 				class:loaded={imageLoaded}

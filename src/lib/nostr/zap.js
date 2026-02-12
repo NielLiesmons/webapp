@@ -8,7 +8,7 @@
 import { resolveLightningAddress, fetchInvoiceFromCallback, validateZapSupport } from '$lib/lnurl';
 import { fetchProfile } from './service';
 import { DEFAULT_SOCIAL_RELAYS } from '$lib/config';
-import { getPool, initNostrService, getEventStore } from './service';
+import { getPool, getEventStore } from './service';
 /**
  * Create a zap request (NIP-57), fetch Lightning invoice from LNURL callback,
  * and return invoice + zap request id for QR display and in-browser wallets.
@@ -124,7 +124,6 @@ export async function createZap(target, amountSats, comment, signEvent, emojiTag
 export function subscribeToZapReceipt(recipientPubkey, zapRequestId, onReceipt, _options) {
     let sub = null;
     async function run() {
-        await initNostrService();
         const p = getPool();
         const store = getEventStore();
         sub = p

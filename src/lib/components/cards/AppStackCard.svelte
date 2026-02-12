@@ -30,6 +30,19 @@
 	/** @type {string} - Additional CSS classes */
 	export let className = '';
 
+	function isHexPubkey(value) {
+		return typeof value === 'string' && /^[0-9a-f]{64}$/i.test(value.trim());
+	}
+
+	function safeNpub(pubkey) {
+		if (!isHexPubkey(pubkey)) return '';
+		try {
+			return nip19.npubEncode(pubkey.trim().toLowerCase());
+		} catch {
+			return '';
+		}
+	}
+
 	// Get the first 4 apps for the 2x2 grid
 	$: displayApps = (stack.apps || []).slice(0, 4);
 
@@ -78,8 +91,7 @@
 	/** @param {MouseEvent | KeyboardEvent} e */
 	function handleCreatorClick(e) {
 		e.stopPropagation();
-		const npub =
-			stack.creator?.npub || (stack.creator?.pubkey ? nip19.npubEncode(stack.creator.pubkey) : '');
+		const npub = stack.creator?.npub || safeNpub(stack.creator?.pubkey);
 		const creatorHref = npub ? `/profile/${npub}` : '#';
 		if (creatorHref !== '#') goto(creatorHref);
 	}

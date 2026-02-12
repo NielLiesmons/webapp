@@ -13,11 +13,10 @@
  * UI renders immediately from prerendered data, background work
  * happens via requestIdleCallback.
  */
-import { EventStore, Helpers } from 'applesauce-core';
+import { EventStore } from 'applesauce-core';
 import { RelayPool } from 'applesauce-relay';
 import { openDB } from 'idb';
-import { IDB_NAME, IDB_VERSION, DEFAULT_CATALOG_RELAYS, DEFAULT_SOCIAL_RELAYS, PROFILE_RELAYS, PLATFORM_FILTER } from '$lib/config';
-const { persistEventsToCache } = Helpers;
+import { IDB_NAME, IDB_VERSION, DEFAULT_CATALOG_RELAYS, DEFAULT_SOCIAL_RELAYS, PLATFORM_FILTER } from '$lib/config';
 // Singleton instances
 let eventStore = null;
 let pool = null;
@@ -257,14 +256,12 @@ export async function fetchEvents(filter, options = {}) {
     if (signal?.aborted)
         return [];
     if (typeof window === 'undefined') {
-        return queryStore(filter);
+        return [];
     }
-    await initNostrService();
-    // Step 1: If EventStore empty, load from IndexedDB into store (queryCache does store.add)
+    // Step 1: If EventStore is empty, query IndexedDB directly.
     let results = queryStore(filter);
     if (results.length === 0) {
-        await queryCache(filter);
-        results = queryStore(filter);
+        results = await queryCache(filter);
     }
     // Step 2: Always fetch from relays when online so we get complete, consistent data.
     // (Early return on "any store result" caused partial/stale counts across reloads and browsers.)
@@ -305,8 +302,7 @@ export function watchEvents(filter, options = {}, onUpdate) {
     // Background: check cache then relays (async, non-blocking)
     (async () => {
         try {
-            await initNostrService();
-            // If EventStore empty, check IndexedDB
+            // If EventStore empty, check IndexedDB directly.
             if (localResults.length === 0) {
                 const cachedResults = await queryCache(filter);
                 if (cachedResults.length > 0 && onUpdate) {
@@ -342,28 +338,7 @@ export function watchEvent(filter, options = {}, onUpdate) {
  * get instant local data (per ARCHITECTURE: "IndexedDB cache loaded into EventStore").
  */
 export async function initNostrService() {
-    if (initialized)
-        return;
-    const store = getEventStore();
-    // Set up non-blocking persistence: events added to store are saved to cache
-    const database = await getDb();
-    persistEventsToCache(store, async (events) => {
-        const db = await getDb();
-        const tx = db.transaction('events', 'readwrite');
-        for (const event of events) {
-            await tx.store.put({
-                id: event.id,
-                event,
-                cachedAt: Date.now()
-            });
-        }
-        await tx.done;
-    });
-    // Load IndexedDB cache into EventStore so queryStore/queryCommentsFromStore
-    // return data immediately on return visits (local-first, per ARCHITECTURE)
-    await loadCacheIntoStore();
     initialized = true;
-    console.log('[NostrService] Initialized (cache loaded into EventStore)');
 }
 /**
  * Load cached events from IndexedDB into EventStore.
@@ -371,35 +346,7 @@ export async function initNostrService() {
  * Call this only when needed (offline mode, return visits).
  */
 export async function loadCacheIntoStore() {
-    const store = getEventStore();
-    const database = await getDb();
-    // Load profiles (kind 0) first so zapper/commenter profiles show immediately from cache
-    let loadedCount = 0;
-    let hasKindIndex = false;
-    try {
-        const profileRecords = (await database.getAllFromIndex('events', 'kind', 0));
-        hasKindIndex = true;
-        for (const record of profileRecords) {
-            if (record.event && record.event.kind === 0) {
-                store.add(record.event);
-                loadedCount++;
-            }
-        }
-    }
-    catch {
-        // Index may not exist on older DBs; will load all below
-    }
-    const records = (await database.getAll('events'));
-    for (const record of records) {
-        if (!record.event || typeof record.event.kind !== 'number')
-            continue;
-        if (hasKindIndex && record.event.kind === 0)
-            continue; // already loaded
-        store.add(record.event);
-        loadedCount++;
-    }
-    console.log(`[NostrService] Loaded ${loadedCount} events from cache (profiles first)`);
-    return loadedCount;
+    return 0;
 }
 /**
  * Check if we have any cached events of a specific kind
@@ -418,14 +365,19 @@ export function hasCachedEvents(kind) {
 export async function seedEventsToLocalCache(events) {
     if (events.length === 0)
         return 0;
-    await initNostrService();
-    const store = getEventStore();
-    let added = 0;
+    const database = await getDb();
+    const tx = database.transaction('events', 'readwrite');
     for (const event of events) {
-        store.add(event);
-        added++;
+        if (!event?.id)
+            continue;
+        await tx.store.put({
+            id: event.id,
+            event,
+            cachedAt: Date.now()
+        });
     }
-    return added;
+    await tx.done;
+    return events.length;
 }
 /**
  * Fetch events from relays
@@ -716,35 +668,19 @@ export async function fetchAppStacksParsed(options = {}) {
 }
 /**
  * Fetch a profile by pubkey.
- * Uses local-first pattern: EventStore → IndexedDB → Social Relays
+ * Uses local-first pattern: EventStore first, then server profile API.
  */
 export async function fetchProfile(pubkey, options = {}) {
     const { timeout = 5000, signal } = options;
     if (signal?.aborted || !pubkey) {
         return null;
     }
-    const filter = {
-        kinds: [0], // EVENT_KINDS.PROFILE
-        authors: [pubkey],
-        limit: 1
-    };
-    // Use profile relays (social + vertex, match Flutter app)
-    console.log(`[NostrService] Fetching profile for: ${pubkey.slice(0, 8)}...`);
-    const events = await fetchEvents(filter, {
-        relays: [...PROFILE_RELAYS],
-        timeout,
-        signal,
-    });
-    if (events.length > 0) {
-        console.log(`[NostrService] Found profile for: ${pubkey.slice(0, 8)}...`);
-        return events[0];
-    }
-    console.log(`[NostrService] No profile found for: ${pubkey.slice(0, 8)}...`);
-    return null;
+    const results = await fetchProfilesBatch([pubkey], { timeout, signal });
+    return results.get(pubkey) ?? null;
 }
 /**
  * Fetch multiple profiles in batch.
- * Uses local-first pattern with parallel fetching.
+ * Uses local-first pattern: EventStore first, then server profile API.
  */
 export async function fetchProfilesBatch(pubkeys, options = {}) {
     const { timeout = 5000, signal } = options;
@@ -752,18 +688,44 @@ export async function fetchProfilesBatch(pubkeys, options = {}) {
     if (!pubkeys || pubkeys.length === 0 || signal?.aborted) {
         return results;
     }
-    // Deduplicate pubkeys
-    const uniquePubkeys = [...new Set(pubkeys)];
-    console.log(`[NostrService] Fetching ${uniquePubkeys.length} profiles in batch...`);
-    // Fetch all profiles in parallel
-    const fetchPromises = uniquePubkeys.map(async (pubkey) => {
-        const event = await fetchProfile(pubkey, { timeout, signal });
-        if (event) {
-            results.set(pubkey, event);
+    const uniquePubkeys = [...new Set(pubkeys.map((pk) => String(pk).trim().toLowerCase()).filter((pk) => /^[a-f0-9]{64}$/.test(pk)))];
+    // First pass: satisfy from local EventStore synchronously.
+    const missingPubkeys = [];
+    for (const pubkey of uniquePubkeys) {
+        const cached = queryStoreOne({ kinds: [0], authors: [pubkey], limit: 1 });
+        if (cached) {
+            results.set(pubkey, cached);
         }
-    });
-    await Promise.all(fetchPromises);
-    console.log(`[NostrService] Fetched ${results.size} profiles`);
+        else {
+            missingPubkeys.push(pubkey);
+        }
+    }
+    // Second pass: resolve misses via server-side profile API (social relays incl. vertexlab).
+    if (missingPubkeys.length > 0 && typeof window !== 'undefined') {
+        try {
+            const response = await fetch('/api/profiles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pubkeys: missingPubkeys, timeout }),
+                signal
+            });
+            if (response.ok) {
+                const payload = await response.json();
+                const profiles = payload?.profiles ?? {};
+                const store = getEventStore();
+                for (const pubkey of missingPubkeys) {
+                    const event = profiles[pubkey] ?? null;
+                    if (event && typeof event === 'object' && event.kind === 0) {
+                        store.add(event);
+                        results.set(pubkey, event);
+                    }
+                }
+            }
+        }
+        catch {
+            // Keep partial local-first results when server profile fetch fails.
+        }
+    }
     return results;
 }
 // ============================================================================
@@ -870,7 +832,6 @@ export function watchComments(pubkey, identifier, options = {}, onUpdate) {
         return initial;
     (async () => {
         try {
-            await initNostrService();
             const { timeout = 5000, relays = SOCIAL_RELAYS, aTagKind = 32267 } = options;
             const events = await fetchComments(pubkey, identifier, { timeout, relays, aTagKind });
             onUpdate?.(events);
@@ -1101,7 +1062,6 @@ export async function publishComment(content, target, signEvent, emojiTags, pare
         created_at: Math.floor(Date.now() / 1000)
     };
     const signed = (await signEvent(template));
-    await initNostrService();
     const p = getPool();
     const results = await p.publish([...SOCIAL_RELAYS], signed, { timeout: 10000 });
     const accepted = results.filter((r) => r.ok);

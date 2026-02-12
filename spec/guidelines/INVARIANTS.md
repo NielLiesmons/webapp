@@ -28,8 +28,17 @@ These are the most critical invariants. Local-first is not optional.
 
 - Prerendered content displays immediately; relay fetch is background refresh.
 - Relay fetches must have a timeout (default 5 seconds).
+- Any relay subscription that waits for EOSE must resolve on first EOSE + 300ms grace (client and server), with timeout fallback.
+- Server-side relay subscriptions must resolve at first EOSE + 300ms grace (or timeout fallback).
 - Never wait indefinitely for relay responses.
 - Fresh data updates UI reactively without blocking.
+
+## Data Source Boundaries
+
+- Comments and zaps are social data and come from client-side relay checking.
+- The EOSE + 300ms grace rule applies to both client-side and server-side relay fetch paths.
+- Apps, releases, stacks, and profiles are server-side data paths only.
+- Server data hydrates the client cache/store, then updates in the background without blocking UI.
 
 ## Storage Management
 

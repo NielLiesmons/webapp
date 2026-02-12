@@ -12,7 +12,7 @@ import { page } from "$app/stores";
 import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { beforeNavigate } from "$app/navigation";
-import { fetchAppStacksParsed, fetchApp, fetchProfile, queryStoreOne, queryCommentsFromStore, fetchComments, decodeNaddr, encodeAppNaddr, encodeStackNaddr, parseProfile, parseComment, publishComment, } from "$lib/nostr";
+import { fetchProfile, fetchProfilesBatch, queryStoreOne, queryCommentsFromStore, fetchComments, encodeAppNaddr, encodeStackNaddr, parseProfile, parseComment, publishComment, } from "$lib/nostr";
 import { nip19 } from "nostr-tools";
 import { wheelScroll } from "$lib/actions/wheelScroll.js";
 import AppSmallCard from "$lib/components/cards/AppSmallCard.svelte";
@@ -23,6 +23,8 @@ import DetailHeader from "$lib/components/layout/DetailHeader.svelte";
 import { createSearchProfilesFunction } from "$lib/services/profile-search";
 import { createSearchEmojisFunction } from "$lib/services/emoji-search";
 import { getCurrentPubkey, getIsSignedIn, signEvent } from "$lib/stores/auth.svelte.js";
+import { persistEventsInBackground } from "$lib/nostr/cache-writer.js";
+let { data } = $props();
 // Catalog for this stack - currently just Zapstore
 const catalogs = [
     {
@@ -99,54 +101,27 @@ function tryRestoreHorizontalScroll() {
     }
 }
 onMount(() => {
+    stack = data.stack ?? null;
+    apps = data.apps ?? [];
+    error = data.error ?? null;
     loadStack();
     restoreScrollPositions();
 });
 async function loadStack() {
     try {
         error = null;
-        // Parse the naddr to get pubkey and identifier
-        let stackPubkey, stackIdentifier;
-        try {
-            if (!stackNaddr) {
-                error = "Invalid stack URL";
-                return;
-            }
-            const parsed = decodeNaddr(stackNaddr);
-            if (!parsed) {
-                error = "Invalid stack URL";
-                return;
-            }
-            stackPubkey = parsed.pubkey;
-            stackIdentifier = parsed.identifier;
-        }
-        catch (parseErr) {
-            error = "Invalid stack URL";
+        if (!data.stack) {
+            error = data.error ?? "Stack not found";
             return;
         }
-        // Show loading only after a delay (if data takes time from network)
-        const loadingTimeout = setTimeout(() => {
-            loading = true;
-        }, 100); // 100ms delay - cached data loads instantly
-        // Fetch all stacks and find the one matching our pubkey and identifier
-        const allStacks = await fetchAppStacksParsed({
-            limit: 100,
-            authors: [stackPubkey],
-        });
-        // Clear loading timeout since we got data
-        clearTimeout(loadingTimeout);
-        const foundStack = allStacks.find((s) => s.pubkey === stackPubkey && s.dTag === stackIdentifier);
-        if (!foundStack) {
-            error = "Stack not found";
-            loading = false;
-            return;
-        }
+        const foundStack = data.stack;
+        persistEventsInBackground(data.seedEvents ?? []);
         // Fetch creator profile
         let creator = null;
         const creatorPubkey = foundStack.pubkey;
         if (creatorPubkey) {
             try {
-                const profileEvent = await fetchProfile(creatorPubkey);
+                const profileEvent = (await fetchProfilesBatch([creatorPubkey])).get(creatorPubkey) ?? null;
                 if (profileEvent) {
                     const profile = parseProfile(profileEvent);
                     creator = {
@@ -201,19 +176,7 @@ async function loadStack() {
             profiles = nextProfiles;
         }
         loadCommentsForStack(foundStack.pubkey, foundStack.dTag);
-        // Fetch all apps referenced in the stack
-        const appPromises = foundStack.appRefs.map(async (ref) => {
-            try {
-                const app = await fetchApp(ref.pubkey, ref.identifier);
-                return app;
-            }
-            catch (e) {
-                console.error("Failed to fetch app:", ref, e);
-                return null;
-            }
-        });
-        const fetchedApps = await Promise.all(appPromises);
-        apps = fetchedApps.filter((app) => app !== null);
+        apps = data.apps ?? [];
     }
     catch (err) {
         console.error("Error loading stack:", err);
@@ -235,20 +198,23 @@ async function loadCommentsForStack(pubkey, dTag) {
         const uniquePubkeys = [...new Set(comments.map((c) => c.pubkey))];
         profilesLoading = true;
         const nextProfiles = { ...profiles };
+        const fetchedProfiles = await fetchProfilesBatch(uniquePubkeys);
         for (const pk of uniquePubkeys) {
+            const event = fetchedProfiles.get(pk);
+            if (!event?.content) {
+                nextProfiles[pk] = nextProfiles[pk] ?? null;
+                continue;
+            }
             try {
-                const event = await fetchProfile(pk);
-                if (event?.content) {
-                    const c = JSON.parse(event.content);
-                    nextProfiles[pk] = {
-                        displayName: c.display_name ?? c.name,
-                        name: c.name,
-                        picture: c.picture,
-                    };
-                }
+                const c = JSON.parse(event.content);
+                nextProfiles[pk] = {
+                    displayName: c.display_name ?? c.name,
+                    name: c.name,
+                    picture: c.picture,
+                };
             }
             catch {
-                nextProfiles[pk] = null;
+                nextProfiles[pk] = nextProfiles[pk] ?? null;
             }
         }
         profiles = nextProfiles;

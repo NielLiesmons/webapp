@@ -1,5 +1,6 @@
 <script>
   import { hexToColor, stringToColor } from "$lib/utils/color.js";
+  import { toFirstPartyImageUrl } from "$lib/utils/media-proxy.js";
   import SkeletonLoader from "./SkeletonLoader.svelte";
 
   /**
@@ -72,10 +73,11 @@
   let imageError = false;
 
   // Reactive computations
+  $: resolvedIconUrl = toFirstPartyImageUrl(iconUrl);
   $: resolvedSize = sizeMap[size] || sizeMap.md;
   $: borderRadius = getBorderRadius(resolvedSize);
   $: fontSize = Math.round(resolvedSize * fontSizeRatio);
-  $: hasValidUrl = iconUrl && iconUrl.trim().length > 0;
+  $: hasValidUrl = resolvedIconUrl && resolvedIconUrl.trim().length > 0;
   $: showImage = hasValidUrl && !imageError;
   
   // Action to check if image is already cached (loaded synchronously)
@@ -129,7 +131,7 @@
   }
 
   // Reset states when URL changes
-  $: if (iconUrl) {
+  $: if (resolvedIconUrl) {
     imageLoaded = false;
     imageError = false;
   }
@@ -155,12 +157,12 @@
       {#if fillBackground && imageLoaded}
         <div
           class="blurred-background"
-          style="background-image: url({iconUrl});"
+          style="background-image: url({resolvedIconUrl});"
         ></div>
       {/if}
 
       <img
-        src={iconUrl}
+        src={resolvedIconUrl}
         alt={name ? `${name} icon` : "App icon"}
         class="app-image"
         class:loaded={imageLoaded}

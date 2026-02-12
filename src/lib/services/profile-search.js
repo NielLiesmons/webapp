@@ -9,7 +9,7 @@
  * - Background: watchEvents for kind 0 (defaults), kind 3 & 30000 (user), then fetch kind 0 for contacts
  */
 import { writable } from 'svelte/store';
-import { queryStore, queryStoreOne, watchEvents, fetchEvents } from '$lib/nostr';
+import { queryStore, queryStoreOne, watchEvents, fetchProfilesBatch } from '$lib/nostr';
 import { parseProfile } from '$lib/nostr/models';
 import { PROFILE_RELAYS } from '$lib/config';
 import { nip19 } from 'nostr-tools';
@@ -60,12 +60,17 @@ function startWatchDefaultProfiles() {
         limit: 1
     });
     setZapstoreProfileFromEvent(zapstoreEvent);
-    const zapstoreLower = ZAPSTORE_PUBKEY.toLowerCase();
-    watchEvents({ kinds: [KIND_PROFILE], authors: [...DEFAULT_PUBKEYS], limit: 10 }, { relays: PROFILE_RELAYS, timeout: 8000 }, (events) => {
-        const zapstore = events.find((e) => e.pubkey?.toLowerCase() === zapstoreLower);
-        if (zapstore)
-            setZapstoreProfileFromEvent(zapstore);
-    });
+    void (async () => {
+        try {
+            const batch = await fetchProfilesBatch(DEFAULT_PUBKEYS, { timeout: 8000 });
+            const zapstore = batch.get(ZAPSTORE_PUBKEY) ?? null;
+            if (zapstore)
+                setZapstoreProfileFromEvent(zapstore);
+        }
+        catch {
+            // keep local-first state from EventStore when server profile API is unavailable
+        }
+    })();
 }
 /** Per-user: start watching kind 3 & 30000, then fetch kind 0 for contact pubkeys in background */
 const userWatchStarted = new Set();
@@ -83,8 +88,8 @@ function startWatchUserContacts(userPubkey) {
             .map((t) => t[1]);
         if (pubkeys.length === 0)
             return;
-        // Fetch kind 0 for contacts so they appear in store
-        fetchEvents({ kinds: [KIND_PROFILE], authors: pubkeys, limit: 500 }, { relays: PROFILE_RELAYS, timeout: 5000 }).catch(() => { });
+        // Fetch kind 0 via server profile API so client does not hit social relays directly.
+        fetchProfilesBatch(pubkeys, { timeout: 5000 }).catch(() => { });
     });
     watchEvents({ kinds: [KIND_FOLLOW_SET], authors: [userPubkey], limit: 50 }, { relays: PROFILE_RELAYS, timeout: 6000 }, (followEvents) => {
         const allP = [];
@@ -95,7 +100,7 @@ function startWatchUserContacts(userPubkey) {
         }
         if (allP.length === 0)
             return;
-        fetchEvents({ kinds: [KIND_PROFILE], authors: allP, limit: 500 }, { relays: PROFILE_RELAYS, timeout: 5000 }).catch(() => { });
+        fetchProfilesBatch(allP, { timeout: 5000 }).catch(() => { });
     });
 }
 /**
