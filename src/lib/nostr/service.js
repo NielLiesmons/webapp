@@ -9,7 +9,7 @@
  */
 import { SimplePool } from 'nostr-tools';
 import { DEFAULT_CATALOG_RELAYS, DEFAULT_SOCIAL_RELAYS, PLATFORM_FILTER } from '$lib/config';
-import { db, putEvents, queryEvents, queryEvent } from './dexie';
+import { db, putEvents, queryEvents } from './dexie';
 
 // ============================================================================
 // Relay Pool (client-side, for social features + search)
@@ -130,16 +130,16 @@ export async function fetchProfilesBatch(pubkeys, options = {}) {
 		)
 	];
 
-	// First pass: check Dexie
-	const missingPubkeys = [];
-	for (const pubkey of uniquePubkeys) {
-		const cached = await queryEvent({ kinds: [0], authors: [pubkey], limit: 1 });
-		if (cached) {
-			results.set(pubkey, cached);
-		} else {
-			missingPubkeys.push(pubkey);
+	// First pass: batch check Dexie — single query for all pubkeys
+	const cachedProfiles = await queryEvents({ kinds: [0], authors: uniquePubkeys });
+	// Keep latest per pubkey (queryEvents returns sorted by created_at desc)
+	for (const event of cachedProfiles) {
+		const pk = event.pubkey?.toLowerCase();
+		if (pk && !results.has(pk)) {
+			results.set(pk, event);
 		}
 	}
+	const missingPubkeys = uniquePubkeys.filter((pk) => !results.has(pk));
 
 	// Second pass: server API for misses
 	if (missingPubkeys.length > 0 && typeof window !== 'undefined') {

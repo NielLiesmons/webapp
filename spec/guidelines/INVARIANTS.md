@@ -29,6 +29,7 @@ These are the most critical invariants. Local-first is not optional.
 - Prerendered content displays immediately; API/relay fetch is background refresh.
 - All fetch operations must have a timeout (default 5 seconds).
 - **EOSE + 300ms rule:** All relay subscriptions — both server-side (in-memory relay pool) and client-side (social/search fetches) — must resolve at first EOSE + 300ms grace period, or timeout fallback (default 5s). This prevents hanging on slow relays while still collecting late-arriving events. Never wait indefinitely for relay or API responses.
+- **No N+1 queries.** Never issue a query inside a loop. Collect all keys first, issue one batch query, then distribute results in memory. This applies to relay subscriptions (`queryRelays`, `fetchFromRelays`), the server cache (`queryCache`), and client storage (`queryEvent`/`queryEvents`/Dexie `.where()`). Each relay round-trip opens a WebSocket subscription, waits for EOSE + grace, and closes — doing this per item is a critical performance bug.
 - Fresh data is written to Dexie; liveQuery updates UI reactively without blocking.
 
 ## Data Source Boundaries

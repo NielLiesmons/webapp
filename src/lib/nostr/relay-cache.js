@@ -309,16 +309,16 @@ export async function fetchProfiles(pubkeys, options = {}) {
 		)
 	];
 
-	// Check cache first
-	const missing = [];
-	for (const pk of normalized) {
-		const cached = queryCache({ kinds: [EVENT_KINDS.PROFILE], authors: [pk], limit: 1 });
-		if (cached.length > 0) {
-			results.set(pk, cached[0]);
-		} else {
-			missing.push(pk);
+	// Check cache first — single batch query for all pubkeys
+	const cachedProfiles = queryCache({ kinds: [EVENT_KINDS.PROFILE], authors: normalized });
+	// Keep latest per pubkey (queryCache returns sorted by created_at desc)
+	for (const event of cachedProfiles) {
+		const pk = event.pubkey?.toLowerCase();
+		if (pk && !results.has(pk)) {
+			results.set(pk, event);
 		}
 	}
+	const missing = normalized.filter((pk) => !results.has(pk));
 
 	// Fetch missing from relays
 	if (missing.length > 0) {

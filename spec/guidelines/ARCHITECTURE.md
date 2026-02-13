@@ -126,6 +126,31 @@ This prevents hanging on slow or unresponsive relays while still capturing event
 - **Server:** `relay-cache.js` → `queryRelaysRaw()` (feeds the in-memory cache)
 - **Client:** `service.js` → `fetchFromRelays()` (social features, search)
 
+### Batch Queries — No N+1
+
+**Never query inside a loop.** Every code path that resolves related data (e.g. "apps in a stack", "profiles for a list of pubkeys", "older versions of replaceable events") must collect all keys first and issue a **single** batch query, then distribute results in memory.
+
+```
+❌ BAD — N+1 (one query per item)
+for (const ref of stack.appRefs) {
+  const result = queryCache({ kinds: [APP], authors: [ref.pubkey], '#d': [ref.id], limit: 1 });
+}
+
+✅ GOOD — batch (one query for all items)
+const results = queryCache({ kinds: [APP], authors: allPubkeys, '#d': allIds });
+const byKey = new Map(results.map(e => [`${e.pubkey}:${dTag(e)}`, e]));
+for (const ref of stack.appRefs) {
+  const app = byKey.get(`${ref.pubkey}:${ref.id}`);
+}
+```
+
+This applies equally to:
+- **Server relay cache** (`queryCache`, `queryRelays`) — each relay round-trip is expensive (WebSocket open → EOSE → grace → close).
+- **Client Dexie** (`queryEvent`, `queryEvents`, `db.events.where(...)`) — IndexedDB transactions have per-call overhead.
+- **Relay fetches** (`queryRelays`, `fetchFromRelays`) — always batch missing keys into one subscription.
+
+When resolving data for multiple parent objects (e.g. apps for 20 stacks), collect refs across **all** parents, issue one query, then distribute results back.
+
 ### Query Interface
 
 The client queries data through two paths:

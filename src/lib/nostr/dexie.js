@@ -73,20 +73,37 @@ export async function putEvents(events) {
 	const toPut = [...nonReplaceable, ...replaceableByKey.values()];
 
 	// For replaceable events, remove older versions before inserting
+	// Single batch query for all (kind, pubkey) pairs, then filter in memory
 	await db.transaction('rw', db.events, async () => {
-		for (const event of replaceableByKey.values()) {
-			const dTag = event.tags?.find((t) => t[0] === 'd')?.[1] ?? '';
-			// Delete older versions of this replaceable event
-			const existing = await db.events
+		if (replaceableByKey.size > 0) {
+			// Collect unique (kind, pubkey) pairs
+			const kindPubkeyPairs = new Map();
+			for (const event of replaceableByKey.values()) {
+				const kp = `${event.kind}:${event.pubkey}`;
+				if (!kindPubkeyPairs.has(kp)) {
+					kindPubkeyPairs.set(kp, [event.kind, event.pubkey]);
+				}
+			}
+
+			// Single batch query for all candidates
+			const existingEvents = await db.events
 				.where('[kind+pubkey]')
-				.equals([event.kind, event.pubkey])
-				.filter((e) => {
-					const eDTag = e.tags?.find((t) => t[0] === 'd')?.[1] ?? '';
-					return eDTag === dTag && e.id !== event.id;
-				})
+				.anyOf([...kindPubkeyPairs.values()])
 				.toArray();
-			if (existing.length > 0) {
-				await db.events.bulkDelete(existing.map((e) => e.id));
+
+			// Find IDs to delete: events that match a replaceable key but are not the new version
+			const newEventIds = new Set([...replaceableByKey.values()].map((e) => e.id));
+			const idsToDelete = [];
+			for (const existing of existingEvents) {
+				const dTag = existing.tags?.find((t) => t[0] === 'd')?.[1] ?? '';
+				const key = `${existing.kind}:${existing.pubkey}:${dTag}`;
+				if (replaceableByKey.has(key) && !newEventIds.has(existing.id)) {
+					idsToDelete.push(existing.id);
+				}
+			}
+
+			if (idsToDelete.length > 0) {
+				await db.events.bulkDelete(idsToDelete);
 			}
 		}
 		await db.events.bulkPut(toPut);
