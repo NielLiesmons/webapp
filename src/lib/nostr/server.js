@@ -9,7 +9,8 @@
 import {
 	queryCache,
 	fetchProfiles,
-	warmUp
+	warmUp,
+	queryRelays
 } from './relay-cache';
 import {
 	parseApp,
@@ -17,7 +18,7 @@ import {
 	parseAppStack,
 	parseProfile
 } from './models';
-import { EVENT_KINDS, PLATFORM_FILTER } from '$lib/config';
+import { EVENT_KINDS, DEFAULT_CATALOG_RELAYS, PLATFORM_FILTER } from '$lib/config';
 
 // ============================================================================
 // Helpers
@@ -146,6 +147,7 @@ export async function fetchAppsByReleases(limit = 20, until) {
 
 /**
  * Fetch a single app by pubkey and identifier.
+ * Tries the in-memory cache first; on miss, queries upstream relays on demand.
  */
 export async function fetchApp(pubkey, identifier) {
 	await warmUp();
@@ -159,19 +161,27 @@ export async function fetchApp(pubkey, identifier) {
 		limit: 1
 	};
 
-	const results = queryCache(filter);
-	if (results.length === 0) return null;
-	return parseApp(results[0]);
+	// Try cache first
+	const cached = queryCache(filter);
+	if (cached.length > 0) return parseApp(cached[0]);
+
+	// Cache miss — fetch on-demand from upstream relays (auto-populates cache)
+	const relayResults = await queryRelays(DEFAULT_CATALOG_RELAYS, filter);
+	if (relayResults.length > 0) return parseApp(relayResults[0]);
+
+	return null;
 }
 
 /**
  * Fetch latest release for an app.
+ * Tries the in-memory cache first; on miss, queries upstream relays on demand.
  */
 export async function fetchLatestReleaseForApp(pubkey, identifier) {
 	await warmUp();
 
-	// Try by 'a' tag first (canonical)
 	const aTagValue = `${EVENT_KINDS.APP}:${pubkey}:${identifier}`;
+
+	// Try cache by 'a' tag first (canonical)
 	let results = queryCache({
 		kinds: [EVENT_KINDS.RELEASE],
 		'#a': [aTagValue],
@@ -179,7 +189,7 @@ export async function fetchLatestReleaseForApp(pubkey, identifier) {
 	});
 
 	if (results.length === 0) {
-		// Fallback: by author + 'i' tag
+		// Fallback: by author + 'i' tag in cache
 		const allReleases = queryCache({
 			kinds: [EVENT_KINDS.RELEASE],
 			authors: [pubkey],
@@ -193,12 +203,22 @@ export async function fetchLatestReleaseForApp(pubkey, identifier) {
 		});
 	}
 
-	if (results.length === 0) return null;
-	return parseRelease(results[0]);
+	if (results.length > 0) return parseRelease(results[0]);
+
+	// Cache miss — fetch on-demand from upstream relays (auto-populates cache)
+	const relayResults = await queryRelays(DEFAULT_CATALOG_RELAYS, {
+		kinds: [EVENT_KINDS.RELEASE],
+		'#a': [aTagValue],
+		limit: 1
+	});
+	if (relayResults.length > 0) return parseRelease(relayResults[0]);
+
+	return null;
 }
 
 /**
  * Fetch releases for an app.
+ * Tries the in-memory cache first; on miss, queries upstream relays on demand.
  */
 export async function fetchReleasesForApp(pubkey, identifier, limit = 50) {
 	await warmUp();
@@ -206,15 +226,20 @@ export async function fetchReleasesForApp(pubkey, identifier, limit = 50) {
 	const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
 	const aTagValue = `${EVENT_KINDS.APP}:${pubkey}:${identifier}`;
 	const platformTag = PLATFORM_FILTER['#f']?.[0];
-
-	const results = queryCache({
+	const filter = {
 		kinds: [EVENT_KINDS.RELEASE],
 		'#a': [aTagValue],
 		...(platformTag ? { '#f': [platformTag] } : {}),
 		limit: safeLimit
-	});
+	};
 
-	return results.map(parseRelease);
+	// Try cache first
+	const cached = queryCache(filter);
+	if (cached.length > 0) return cached.map(parseRelease);
+
+	// Cache miss — fetch on-demand from upstream relays (auto-populates cache)
+	const relayResults = await queryRelays(DEFAULT_CATALOG_RELAYS, filter);
+	return relayResults.map(parseRelease);
 }
 
 /**
@@ -259,24 +284,33 @@ export async function fetchStacks(limit = 20, until) {
 
 /**
  * Fetch a single stack with apps and creator profile.
+ * Tries the in-memory cache first; on miss, queries upstream relays on demand.
  */
 export async function fetchStack(pubkey, identifier) {
 	await warmUp();
 
 	const platformTag = PLATFORM_FILTER['#f']?.[0];
-	const results = queryCache({
+	const filter = {
 		kinds: [EVENT_KINDS.APP_STACK],
 		authors: [pubkey],
 		'#d': [identifier],
 		...(platformTag ? { '#f': [platformTag] } : {}),
 		limit: 1
-	});
+	};
+
+	// Try cache first
+	let results = queryCache(filter);
+
+	// Cache miss — fetch on-demand from upstream relays
+	if (results.length === 0) {
+		results = await queryRelays([...DEFAULT_CATALOG_RELAYS], filter);
+	}
 
 	if (results.length === 0) return null;
 
 	const stackEvent = results[0];
 	const stack = parseAppStack(stackEvent);
-	const apps = resolveStackAppsFromCache(stack);
+	const apps = await resolveStackApps(stack);
 
 	// Fetch creator profile
 	const profileMap = await fetchProfiles([pubkey]);
@@ -294,39 +328,51 @@ export async function fetchStack(pubkey, identifier) {
 
 /**
  * Fetch apps by author.
+ * Tries the in-memory cache first; on miss, queries upstream relays on demand.
  */
 export async function fetchAppsByAuthor(pubkey, limit = 50) {
 	await warmUp();
 
 	const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
 	const platformTag = PLATFORM_FILTER['#f']?.[0];
-
-	const results = queryCache({
+	const filter = {
 		kinds: [EVENT_KINDS.APP],
 		authors: [pubkey],
 		...(platformTag ? { '#f': [platformTag] } : {}),
 		limit: safeLimit
-	});
+	};
 
-	return results.map(parseApp);
+	// Try cache first
+	const cached = queryCache(filter);
+	if (cached.length > 0) return cached.map(parseApp);
+
+	// Cache miss — fetch on-demand from upstream relays (auto-populates cache)
+	const relayResults = await queryRelays(DEFAULT_CATALOG_RELAYS, filter);
+	return relayResults.map(parseApp);
 }
 
 /**
  * Fetch stacks by author.
+ * Tries the in-memory cache first; on miss, queries upstream relays on demand.
  */
 export async function fetchStacksByAuthor(pubkey, limit = 50) {
 	await warmUp();
 
 	const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
 	const platformTag = PLATFORM_FILTER['#f']?.[0];
-	const results = queryCache({
+	const filter = {
 		kinds: [EVENT_KINDS.APP_STACK],
 		authors: [pubkey],
 		...(platformTag ? { '#f': [platformTag] } : {}),
 		limit: safeLimit
-	});
+	};
 
-	const stackEvents = results;
+	// Try cache first, then relays
+	let stackEvents = queryCache(filter);
+	if (stackEvents.length === 0) {
+		stackEvents = await queryRelays([...DEFAULT_CATALOG_RELAYS], filter);
+	}
+
 	const stacks = stackEvents.map(parseAppStack);
 
 	const resolvedStacks = [];
@@ -351,6 +397,10 @@ export async function fetchProfilesServer(pubkeys, options = {}) {
 // Internal helpers
 // ============================================================================
 
+/**
+ * Resolve apps referenced by a stack (cache only).
+ * Used by listing functions where speed matters — no relay queries.
+ */
 function resolveStackAppsFromCache(stack) {
 	if (!stack?.appRefs || stack.appRefs.length === 0) return [];
 
@@ -367,6 +417,41 @@ function resolveStackAppsFromCache(stack) {
 			...(platformTag ? { '#f': [platformTag] } : {}),
 			limit: 1
 		});
+
+		if (results.length > 0) {
+			apps.push(parseApp(results[0]));
+		}
+	}
+
+	return apps;
+}
+
+/**
+ * Resolve apps referenced by a stack (with relay fallback).
+ * Used by single-item detail lookups where completeness matters.
+ */
+async function resolveStackApps(stack) {
+	if (!stack?.appRefs || stack.appRefs.length === 0) return [];
+
+	const platformTag = PLATFORM_FILTER['#f']?.[0];
+	const apps = [];
+
+	for (const ref of stack.appRefs) {
+		if (ref.kind !== EVENT_KINDS.APP) continue;
+
+		const filter = {
+			kinds: [EVENT_KINDS.APP],
+			authors: [ref.pubkey],
+			'#d': [ref.identifier],
+			...(platformTag ? { '#f': [platformTag] } : {}),
+			limit: 1
+		};
+
+		let results = queryCache(filter);
+		if (results.length === 0) {
+			// Cache miss — fetch on-demand from upstream relays
+			results = await queryRelays(DEFAULT_CATALOG_RELAYS, filter);
+		}
 
 		if (results.length > 0) {
 			apps.push(parseApp(results[0]));

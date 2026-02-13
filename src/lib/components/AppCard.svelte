@@ -1,42 +1,8 @@
 <script lang="js">
-import { pushState, replaceState } from '$app/navigation';
-import { page } from '$app/stores';
-import { get } from 'svelte/store';
-import { queryEvents, parseRelease } from '$lib/nostr';
-import { EVENT_KINDS, PLATFORM_FILTER } from '$lib/config';
 let { app } = $props();
-// Track prefetched apps to avoid duplicate fetches
-const prefetched = new Set();
-async function handleMouseEnter() {
-    const key = `${app.pubkey}:${app.dTag}`;
-    if (prefetched.has(key))
-        return;
-    prefetched.add(key);
-    // Release is already in Dexie from the listing - query locally
-    const aTagValue = `${EVENT_KINDS.APP}:${app.pubkey}:${app.dTag}`;
-    const releases = await queryEvents({ kinds: [EVENT_KINDS.RELEASE], '#a': [aTagValue], ...PLATFORM_FILTER, limit: 1 });
-    if (releases.length === 0)
-        return;
-    const release = parseRelease(releases[0]);
-    if (release.artifacts.length === 0)
-        return;
-}
-function handleClick(e) {
-    // Prevent default navigation
-    e.preventDefault();
-    // Save current scroll position in current history entry BEFORE navigating
-    const currentState = get(page).state;
-    replaceState('', { ...currentState, scrollY: window.scrollY });
-    // Create a plain serializable object (history state must be cloneable)
-    const appData = JSON.parse(JSON.stringify(app));
-    // Push state with app data - instant, no routing
-    pushState(`/apps/${app.naddr}`, { selectedApp: appData });
-    // Scroll to top for detail view
-    window.scrollTo(0, 0);
-}
 </script>
 
-<a href="/apps/{app.naddr}" class="app-card" onclick={handleClick} onmouseenter={handleMouseEnter}>
+<a href="/apps/{app.naddr}" class="app-card" data-sveltekit-preload-data="hover">
   {#if app.icon}
     <img src={app.icon} alt={app.name} class="app-icon" decoding="async" />
   {:else}

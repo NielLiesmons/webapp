@@ -8,6 +8,7 @@
  * Schema: events are stored as raw Nostr events (id, pubkey, created_at, kind, tags, content, sig).
  */
 import Dexie from 'dexie';
+import { EVENT_KINDS } from '$lib/config';
 
 export const db = new Dexie('zapstore');
 
@@ -42,7 +43,11 @@ function matchesTags(event, filter) {
 export async function putEvents(events) {
 	if (!events || events.length === 0) return;
 
-	const valid = events.filter((e) => e?.id && typeof e.kind === 'number');
+	const valid = events.filter(
+		(e) => e?.id && typeof e.kind === 'number'
+			// Discard encrypted app stacks (non-empty content means encrypted)
+			&& !(e.kind === EVENT_KINDS.APP_STACK && e.content)
+	);
 	if (valid.length === 0) return;
 
 	// Separate replaceable and non-replaceable

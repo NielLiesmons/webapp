@@ -21,7 +21,7 @@ function handleClick(e) {
 }
 </script>
 
-<a {href} class="app-small-card {className}" onclick={handleClick}>
+<a {href} class="app-small-card {className}" onclick={handleClick} data-sveltekit-preload-data="hover">
 	<!-- Mobile icon (56px) -->
 	<div class="app-icon-mobile">
 		<AppPic iconUrl={app.icon} name={app.name} identifier={app.dTag} size="lg" />

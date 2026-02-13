@@ -3,7 +3,7 @@ import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { page } from "$app/stores";
 import { Package, X } from "lucide-svelte";
-import { queryEvents, queryEvent, queryCommentsFromStore, parseApp, parseRelease, fetchProfile, fetchProfilesBatch, fetchComments, fetchCommentRepliesByE, fetchZaps, parseComment, parseZapReceipt, encodeAppNaddr, publishComment, } from "$lib/nostr";
+import { queryEvents, queryEvent, queryCommentsFromStore, parseApp, parseRelease, fetchProfile, fetchProfilesBatch, fetchComments, fetchCommentRepliesByE, fetchZaps, parseComment, parseZapReceipt, encodeAppNaddr, publishComment, decodeNaddr, putEvents, } from "$lib/nostr";
 import SkeletonLoader from "$lib/components/common/SkeletonLoader.svelte";
 import { nip19 } from "nostr-tools";
 import { EVENT_KINDS, PLATFORM_FILTER } from "$lib/config";
@@ -21,7 +21,8 @@ import { renderMarkdown } from "$lib/utils/markdown";
 let { data } = $props();
 const searchProfiles = $derived(createSearchProfilesFunction(() => getCurrentPubkey()));
 const searchEmojis = $derived(createSearchEmojisFunction(getCurrentPubkey()));
-const error = $derived(data.error ?? null);
+// Error is mutable: server may set it, but client can clear it when Dexie has data
+let error = $state(null);
 // Local state - start with prerendered data
 let app = $state(null);
 let latestRelease = $state(null);
@@ -435,34 +436,55 @@ async function loadReleases() {
     }
 }
 onMount(async () => {
-    if (!browser || !data.app)
+    if (!browser)
         return;
-    app = data.app;
-    latestRelease = data.latestRelease;
-    releases = data.releases ?? [];
-    const aTagValue = `${EVENT_KINDS.APP}:${data.app.pubkey}:${data.app.dTag}`;
-    // Async: query Dexie for cached data
-    const cachedRelease = await queryEvent({ kinds: [EVENT_KINDS.RELEASE], "#a": [aTagValue], ...PLATFORM_FILTER });
-    if (cachedRelease) {
-        latestRelease = parseRelease(cachedRelease);
+    // Decode the naddr to get pubkey + identifier for Dexie queries
+    const pointer = decodeNaddr(appNaddr);
+    const _pubkey = data.app?.pubkey ?? pointer?.pubkey;
+    const _identifier = data.app?.dTag ?? pointer?.identifier;
+    if (!_pubkey || !_identifier) {
+        error = data.error ?? 'Invalid app URL';
+        return;
     }
+    const aTagValue = `${EVENT_KINDS.APP}:${_pubkey}:${_identifier}`;
+    // 1. Try Dexie first (local-first: IndexedDB is the single client-side source of truth)
     const cachedApp = await queryEvent({
         kinds: [EVENT_KINDS.APP],
-        authors: [data.app.pubkey],
-        "#d": [data.app.dTag],
+        authors: [_pubkey],
+        "#d": [_identifier],
         ...PLATFORM_FILTER,
     });
     if (cachedApp) {
         app = parseApp(cachedApp);
+        error = null;
     }
-    // Async: comments from Dexie (local-first)
-    const cachedCommentEvents = await queryCommentsFromStore(data.app.pubkey, data.app.dTag);
+    const cachedRelease = await queryEvent({ kinds: [EVENT_KINDS.RELEASE], "#a": [aTagValue], ...PLATFORM_FILTER });
+    if (cachedRelease) {
+        latestRelease = parseRelease(cachedRelease);
+    }
+    // 2. Supplement with server data (may be fresher or have releases)
+    if (data.app) {
+        if (!app) {
+            app = data.app;
+            error = null;
+        }
+        if (data.latestRelease && !latestRelease) {
+            latestRelease = data.latestRelease;
+        }
+        releases = data.releases ?? [];
+    }
+    // 3. If neither Dexie nor server had the app, show error
+    if (!app) {
+        error = data.error ?? 'App not found';
+        return;
+    }
+    // Hydrate social data from Dexie (local-first)
+    const cachedCommentEvents = await queryCommentsFromStore(_pubkey, _identifier);
     if (cachedCommentEvents.length > 0) {
         comments = cachedCommentEvents.map(parseComment);
-        // Hydrate comment-author profiles from Dexie so names/pics show immediately
         const nextProfiles = { ...profiles };
-        const pubkeys = [...new Set(comments.map((c) => c.pubkey))];
-        for (const pk of pubkeys) {
+        const commentPubkeys = [...new Set(comments.map((c) => c.pubkey))];
+        for (const pk of commentPubkeys) {
             const ev = await queryEvent({ kinds: [0], authors: [pk] });
             if (ev?.content) {
                 try {
@@ -481,16 +503,14 @@ onMount(async () => {
         profiles = nextProfiles;
     }
     // Load publisher profile
-    if (data.app?.pubkey) {
-        loadPublisherProfile(data.app.pubkey);
-    }
-    // Async cascade: comments, zaps, then replies by #e (so other apps’ replies show)
+    loadPublisherProfile(_pubkey);
+    // Background cascade: comments, zaps, then replies by #e
     Promise.all([loadComments(), loadZaps()]).then(async () => {
         const mainFeedZapIds = zaps.filter((z) => !z.zappedEventId).map((z) => z.id);
         const allCommentIds = await loadCommentReplies();
         loadZapsByMainFeedIds([...allCommentIds, ...mainFeedZapIds]);
     });
-    // Load releases from prerendered page data
+    // Load releases from server data
     const schedule = "requestIdleCallback" in window
         ? window.requestIdleCallback
         : (cb) => setTimeout(cb, 1);
