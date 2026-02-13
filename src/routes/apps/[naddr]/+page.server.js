@@ -14,19 +14,22 @@ export const load = async ({ params }) => {
 	if (!pointer) {
 		return {
 			app: null,
-			error: 'Invalid app URL'
+			error: 'Invalid app URL',
+			seedEvents: []
 		};
 	}
 	const { pubkey, identifier } = pointer;
-	const app = await fetchApp(pubkey, identifier);
-	if (!app) {
+	const result = fetchApp(pubkey, identifier);
+	if (!result) {
 		return {
 			app: null,
-			error: 'App not found'
+			error: 'App not found',
+			seedEvents: []
 		};
 	}
 	return {
-		app,
-		error: null
+		app: result.app,
+		error: null,
+		seedEvents: result.seedEvents
 	};
 };

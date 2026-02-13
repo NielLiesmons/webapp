@@ -46,8 +46,9 @@ function dedupeEventsById(events) {
 // ============================================================================
 
 /**
- * Fetch apps ordered by created_at (most recent first).
+ * Fetch app seed events ordered by created_at (most recent first).
  * Cache contains top 50 apps from polling. No releases on server.
+ * Returns only raw events for Dexie seeding — parsing happens client-side via liveQuery.
  */
 export function fetchApps(limit = 50) {
 	const platformTag = PLATFORM_FILTER['#f']?.[0];
@@ -58,14 +59,13 @@ export function fetchApps(limit = 50) {
 	};
 
 	const appEvents = queryCache(filter);
-	const apps = appEvents.map(parseApp);
-	const seedEvents = dedupeEventsById(appEvents);
-
-	return { apps, seedEvents };
+	return dedupeEventsById(appEvents);
 }
 
 /**
  * Fetch a single app by pubkey and identifier.
+ * Returns { app, seedEvents } where seedEvents includes the raw app event
+ * and the publisher's profile event (if available in cache).
  */
 export function fetchApp(pubkey, identifier) {
 	const platformTag = PLATFORM_FILTER['#f']?.[0];
@@ -78,13 +78,26 @@ export function fetchApp(pubkey, identifier) {
 	};
 
 	const cached = queryCache(filter);
-	if (cached.length > 0) return parseApp(cached[0]);
+	if (cached.length === 0) return null;
 
-	return null;
+	const appEvent = cached[0];
+	const app = parseApp(appEvent);
+
+	// Get publisher profile from cache (populated by hourly profile poll)
+	const profileResults = queryCache({ kinds: [EVENT_KINDS.PROFILE], authors: [pubkey], limit: 1 });
+	const profileEvent = profileResults[0] ?? null;
+
+	const seedEvents = dedupeEventsById([
+		appEvent,
+		...(profileEvent ? [profileEvent] : [])
+	]);
+
+	return { app, seedEvents };
 }
 
 /**
- * Fetch stacks with resolved apps.
+ * Fetch stack seed events with their referenced app events.
+ * Returns only raw events for Dexie seeding — parsing happens client-side via liveQuery.
  */
 export function fetchStacks(limit = 20, until) {
 	const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
@@ -99,8 +112,8 @@ export function fetchStacks(limit = 20, until) {
 	const stackEvents = queryCache(filter);
 	const stacks = stackEvents.map(parseAppStack);
 
+	// Resolve referenced apps to include their raw events in the seed
 	const appsByStackId = resolveMultipleStackAppsFromCache(stacks);
-	const resolvedStacks = [];
 	const selectedAppEvents = [];
 
 	for (const stack of stacks) {
@@ -108,12 +121,9 @@ export function fetchStacks(limit = 20, until) {
 		selectedAppEvents.push(
 			...apps.map((a) => a.rawEvent).filter(Boolean)
 		);
-		resolvedStacks.push({ stack, apps });
 	}
 
-	const seedEvents = dedupeEventsById([...stackEvents, ...selectedAppEvents]);
-
-	return { stacks, resolvedStacks, seedEvents };
+	return dedupeEventsById([...stackEvents, ...selectedAppEvents]);
 }
 
 /**

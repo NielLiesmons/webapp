@@ -1,16 +1,11 @@
 /**
  * Stacks listing page — server-side seed data
  *
- * Returns stacks with resolved apps from the polling cache.
+ * Returns raw Nostr events for Dexie seeding. No parsed data — liveQuery handles rendering.
  */
 import { fetchStacks } from '$lib/nostr/server';
 
 export const load = async () => {
-	const { stacks, resolvedStacks, seedEvents } = await fetchStacks(20);
-	return {
-		stacks,
-		resolvedStacks,
-		seedEvents,
-		fetchedAt: Date.now()
-	};
+	const seedEvents = fetchStacks(20);
+	return { seedEvents };
 };

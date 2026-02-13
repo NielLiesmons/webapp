@@ -38,6 +38,8 @@ let isTruncated = $state(false);
 let carouselOpen = $state(false);
 let currentImageIndex = $state(0);
 let carouselImageLoaded = $state(false);
+// Track which thumbnail screenshots have loaded
+let thumbsLoaded = $state(new Set());
 // Comments and zaps state (comments may have pending + npub for display)
 let comments = $state([]);
 let commentsLoading = $state(false);
@@ -491,6 +493,13 @@ onMount(async () => {
         error = data.error ?? 'App not found';
         return;
     }
+    // Seed server events (app + publisher profile) into Dexie so subsequent
+    // queries (e.g. loadPublisherProfile) find them locally without relay fetch.
+    if (data.seedEvents?.length > 0) {
+        await putEvents(data.seedEvents).catch((err) =>
+            console.error('[AppDetail] Seed persist failed:', err)
+        );
+    }
     // Hydrate social data from Dexie (local-first)
     const cachedCommentEvents = await queryCommentsFromStore(_pubkey, _identifier);
     if (cachedCommentEvents.length > 0) {
@@ -654,7 +663,19 @@ function toggleReleaseNotesExpanded(id) {
               onclick={() => openCarousel(index)}
               class="screenshot-thumb relative flex-shrink-0 overflow-hidden cursor-pointer group focus:outline-none"
             >
-              <img src={image} alt="Screenshot {index + 1}" class="w-full h-auto object-cover" loading="lazy" />
+              {#if !thumbsLoaded.has(index)}
+                <div class="screenshot-skeleton">
+                  <SkeletonLoader />
+                </div>
+              {/if}
+              <img
+                src={image}
+                alt="Screenshot {index + 1}"
+                class="screenshot-img"
+                class:loaded={thumbsLoaded.has(index)}
+                loading="lazy"
+                onload={() => { thumbsLoaded = new Set(thumbsLoaded).add(index); }}
+              />
             </button>
           {/each}
         </div>
@@ -1149,6 +1170,7 @@ function toggleReleaseNotesExpanded(id) {
 
   .screenshot-thumb {
     width: 80px;
+    aspect-ratio: 9 / 19.5;
     border-radius: 12px;
     background-color: hsl(var(--gray33));
     border: 0.33px solid hsl(var(--white16));
@@ -1159,6 +1181,24 @@ function toggleReleaseNotesExpanded(id) {
       width: 96px;
       border-radius: 16px;
     }
+  }
+
+  .screenshot-skeleton {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+  }
+
+  .screenshot-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .screenshot-img.loaded {
+    opacity: 1;
   }
 
   /* Description */

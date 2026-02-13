@@ -1,7 +1,7 @@
 /**
  * Discover page — server-side seed data
  *
- * Returns apps and stacks from the polling cache for instant first paint.
+ * Returns raw Nostr events for Dexie seeding. No parsed data — liveQuery handles rendering.
  * No releases on server — those are fetched client-side from relays.
  */
 import { fetchApps, fetchStacks } from '$lib/nostr/server';
@@ -9,14 +9,18 @@ import { fetchApps, fetchStacks } from '$lib/nostr/server';
 export const prerender = true;
 
 export const load = async () => {
-	const { apps, seedEvents } = await fetchApps(50);
-	const { stacks, resolvedStacks, seedEvents: stacksSeedEvents } = await fetchStacks(20);
-	return {
-		apps,
-		seedEvents,
-		stacks,
-		resolvedStacks,
-		stacksSeedEvents,
-		fetchedAt: Date.now()
-	};
+	const appEvents = fetchApps(50);
+	const stackEvents = fetchStacks(20);
+
+	// Deduplicate: stacks seed includes referenced app events that may overlap with app seed
+	const seen = new Set();
+	const seedEvents = [];
+	for (const event of [...appEvents, ...stackEvents]) {
+		if (!seen.has(event.id)) {
+			seen.add(event.id);
+			seedEvents.push(event);
+		}
+	}
+
+	return { seedEvents };
 };

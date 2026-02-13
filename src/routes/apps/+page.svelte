@@ -22,9 +22,9 @@ const searchQ = $derived(browser ? ($page.url.searchParams.get('q')?.trim() ?? '
 let searchResults = $state(null);
 let searching = $state(false);
 let searchedQuery = $state('');
-// Data: liveQuery result (if available) → prerendered fallback
+// Data: always from liveQuery (Dexie). Skeleton until first emission.
 const baseApps = $derived(
-    liveApps !== null && liveApps.length > 0 ? liveApps : (data.apps ?? [])
+    liveApps !== null && liveApps.length > 0 ? liveApps : []
 );
 const displayApps = $derived(searchQ ? (searchResults ?? []) : baseApps);
 const isSearching = $derived(searchQ !== '' && (searching || searchResults === null));
@@ -110,8 +110,8 @@ onDestroy(() => {
 		</div>
 
 		<div class="app-grid">
-			{#if displayApps.length === 0 && !isSearching}
-				<p class="empty-state">{searchQ ? `No apps match "${searchQ}"` : 'No apps found'}</p>
+			{#if searchQ && displayApps.length === 0 && !isSearching}
+				<p class="empty-state">No apps match "{searchQ}"</p>
 			{:else if displayApps.length > 0}
 				{#each displayApps as app (app.id)}
 					<div class="app-item">

@@ -8,7 +8,7 @@ import AppSmallCard from '$lib/components/cards/AppSmallCard.svelte';
 import AppStackCard from '$lib/components/cards/AppStackCard.svelte';
 import SkeletonLoader from '$lib/components/common/SkeletonLoader.svelte';
 import { createAppsQuery, seedEvents, getHasMore, isLoadingMore, loadMore } from '$lib/stores/nostr.svelte.js';
-import { createStacksQuery, seedStackEvents } from '$lib/stores/stacks.svelte.js';
+import { createStacksQuery } from '$lib/stores/stacks.svelte.js';
 import { fetchFromRelays } from '$lib/nostr/service';
 import { DEFAULT_CATALOG_RELAYS } from '$lib/config';
 import { nip19 } from 'nostr-tools';
@@ -42,9 +42,9 @@ $effect(() => {
     });
     return () => sub.unsubscribe();
 });
-// Data: liveQuery → prerendered fallback
+// Data: always from liveQuery (Dexie). Skeleton until first emission.
 const apps = $derived(
-    liveApps !== null && liveApps.length > 0 ? liveApps : (data.apps ?? [])
+    liveApps !== null && liveApps.length > 0 ? liveApps : []
 );
 const rawStacks = $derived(
     liveStacks !== null && liveStacks.length > 0 ? liveStacks : []
@@ -192,20 +192,8 @@ $effect(() => {
 });
 onMount(() => {
     if (!browser) return;
-    // Seed prerendered events into Dexie → liveQuery picks them up
+    // Seed events into Dexie → liveQuery picks them up
     seedEvents(data.seedEvents ?? []);
-    seedStackEvents(data.stacksSeedEvents ?? []);
-    // If we have prerendered resolved stacks but no live data yet, show them
-    if (data.resolvedStacks?.length > 0 && resolvedDisplayStacks.length === 0) {
-        resolvedDisplayStacks = data.resolvedStacks.map(({ stack, apps: stackApps }) => ({
-            name: stack.title,
-            description: stack.description,
-            apps: stackApps ?? [],
-            creator: undefined,
-            pubkey: stack.pubkey,
-            dTag: stack.dTag
-        }));
-    }
     // Restore scroll positions
     restoreScrollPositions();
 });
