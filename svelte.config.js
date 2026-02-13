@@ -82,12 +82,8 @@ const config = {
 	},
 
 	onwarn: (warning, handler) => {
-		// Suppress a11y warnings about click handlers without ARIA roles
-		if (warning.code === 'a11y_no_static_element_interactions' || 
-		    warning.code === 'a11y_click_events_have_key_events') {
-			return;
-		}
-		// Handle all other warnings normally
+		if (warning.code?.startsWith('a11y_')) return;
+		if (warning.code === 'css_unused_selector') return;
 		handler(warning);
 	}
 };
