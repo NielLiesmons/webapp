@@ -441,7 +441,7 @@ export async function startPolling() {
 }
 
 /**
- * Stop polling. Called on server shutdown if needed.
+ * Stop polling and close relay connections for graceful shutdown.
  */
 export function stopPolling() {
 	if (catalogPollTimer) {
@@ -452,7 +452,13 @@ export function stopPolling() {
 		clearInterval(profilePollTimer);
 		profilePollTimer = null;
 	}
+	try {
+		pool.close([CATALOG_RELAY, PROFILE_RELAY]);
+	} catch {
+		/* already closed */
+	}
 	started = false;
+	console.log('[RelayCache] Stopped polling and closed relay connections');
 }
 
 /**
