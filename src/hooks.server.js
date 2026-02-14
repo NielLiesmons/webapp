@@ -10,7 +10,9 @@
  */
 import { startPolling, stopPolling } from '$lib/nostr/relay-cache';
 
-startPolling();
+startPolling().catch((err) => {
+	console.error('[Server] startPolling failed:', err);
+});
 
 // Register shutdown handler after module init (deferred so Vite
 // bundling doesn't interfere with the process.on binding).

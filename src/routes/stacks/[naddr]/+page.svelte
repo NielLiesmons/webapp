@@ -12,7 +12,7 @@ import { page } from "$app/stores";
 import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { beforeNavigate } from "$app/navigation";
-import { fetchProfile, fetchProfilesBatch, queryEvent, queryCommentsFromStore, fetchComments, encodeAppNaddr, encodeStackNaddr, parseProfile, parseComment, publishComment, } from "$lib/nostr";
+import { fetchProfile, fetchProfilesBatch, queryEvent, queryEvents, queryCommentsFromStore, fetchComments, encodeAppNaddr, encodeStackNaddr, parseProfile, parseComment, publishComment, decodeNaddr, parseAppStack, parseApp, } from "$lib/nostr";
 import { nip19 } from "nostr-tools";
 import { wheelScroll } from "$lib/actions/wheelScroll.js";
 import AppSmallCard from "$lib/components/cards/AppSmallCard.svelte";
@@ -110,11 +110,24 @@ onMount(() => {
 async function loadStack() {
     try {
         error = null;
-        if (!data.stack) {
+        let foundStack = data.stack;
+        // Client-side navigation / offline: query Dexie if no server data
+        if (!foundStack && browser) {
+            const pointer = decodeNaddr($page.params.naddr);
+            if (pointer) {
+                const event = await queryEvent({
+                    kinds: [30267],
+                    authors: [pointer.pubkey],
+                    '#d': [pointer.identifier]
+                });
+                if (event)
+                    foundStack = parseAppStack(event);
+            }
+        }
+        if (!foundStack) {
             error = data.error ?? "Stack not found";
             return;
         }
-        const foundStack = data.stack;
         persistEventsInBackground(data.seedEvents ?? []);
         // Fetch creator profile
         let creator = null;
@@ -176,7 +189,17 @@ async function loadStack() {
             profiles = nextProfiles;
         }
         loadCommentsForStack(foundStack.pubkey, foundStack.dTag);
-        apps = data.apps ?? [];
+        // Resolve apps: use server data or query Dexie
+        if (data.apps?.length > 0) {
+            apps = data.apps;
+        }
+        else if (foundStack.appRefs?.length > 0) {
+            const ids = foundStack.appRefs.filter((r) => r.kind === 32267).map((r) => r.identifier);
+            if (ids.length > 0) {
+                const events = await queryEvents({ kinds: [32267], '#d': ids });
+                apps = events.map(parseApp);
+            }
+        }
     }
     catch (err) {
         console.error("Error loading stack:", err);

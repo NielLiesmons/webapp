@@ -227,20 +227,27 @@ function queryRelaysRaw(relayUrls, filter, timeoutMs = QUERY_TIMEOUT_MS) {
 			resolve(events);
 		};
 
-		const sub = pool.subscribeMany(relayUrls, filter, {
-			onevent(event) {
-				if (event?.id) events.push(event);
-			},
-			oneose() {
-				if (!eoseTimer) {
-					eoseTimer = setTimeout(() => finish('eose+grace'), EOSE_GRACE_MS);
+		let sub;
+		try {
+			sub = pool.subscribeMany(relayUrls, filter, {
+				onevent(event) {
+					if (event?.id) events.push(event);
+				},
+				oneose() {
+					if (!eoseTimer) {
+						eoseTimer = setTimeout(() => finish('eose+grace'), EOSE_GRACE_MS);
+					}
+				},
+				onclose(reasons) {
+					console.log(`[RelayCache] onclose for ${filterDesc}:`, reasons);
+					if (!settled) finish('closed');
 				}
-			},
-			onclose(reasons) {
-				console.log(`[RelayCache] onclose for ${filterDesc}:`, reasons);
-				if (!settled) finish('closed');
-			}
-		});
+			});
+		} catch (err) {
+			console.warn(`[RelayCache] subscribeMany failed for ${filterDesc}:`, err.message);
+			finish('error');
+			return;
+		}
 
 		timeoutTimer = setTimeout(() => finish('timeout'), timeoutMs);
 	});

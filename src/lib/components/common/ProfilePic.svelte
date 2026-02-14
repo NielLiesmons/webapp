@@ -6,7 +6,6 @@
 		getProfileTextColor,
 		rgbToCssString
 	} from '$lib/utils/color.js';
-	import { toFirstPartyImageUrl } from '$lib/utils/media-proxy.js';
 	import SkeletonLoader from './SkeletonLoader.svelte';
 
 	/**
@@ -79,7 +78,7 @@
 	let imageError = false;
 
 	// Reactive computations
-	$: resolvedPictureUrl = toFirstPartyImageUrl(pictureUrl);
+	$: resolvedPictureUrl = typeof pictureUrl === 'string' ? pictureUrl.trim() : (pictureUrl ?? null);
 	$: resolvedSize = sizeMap[size] || sizeMap.md;
 	$: fontSize = Math.round(resolvedSize * fontSizeRatio);
 	$: hasValidUrl = resolvedPictureUrl && resolvedPictureUrl.trim().length > 0;

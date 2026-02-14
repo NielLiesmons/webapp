@@ -101,7 +101,7 @@ The server runs an **in-memory Nostr event store** fed by **polling** two catalo
 └─────────────────────────────────────────────────────────────┘
                            │
                            ▼
-                   +page.server.js
+                   +page.js (SSR path)
                  returns seed events
             (server-rendered at runtime)
 ```
@@ -111,7 +111,7 @@ The server runs an **in-memory Nostr event store** fed by **polling** two catalo
 - **Cold start:** On server start, a full warm-up pull populates the cache. First request after startup gets fresh relay data.
 - **No persistent WebSocket subscriptions:** The server does not maintain long-lived relay connections. It connects, polls, disconnects.
 - **No SQLite / relay.db:** There is no server-side database. All server data lives in memory, fed by polling.
-- **Seed events:** `+page.server.js` functions query the in-memory cache and return raw Nostr events as seed data in the page payload.
+- **Seed events:** Universal `+page.js` load functions query the in-memory cache during SSR and return raw Nostr events as seed data in the page payload. See "Universal Loads" below.
 - **Build vs Runtime:** During build, RelayCache does a one-time warmup (no polling timers) for any prerendered static pages. During runtime, polling timers keep the cache fresh continuously.
 
 ### Client: Dexie (IndexedDB) with liveQuery
@@ -277,31 +277,90 @@ const byKey = new Map(apps.map(e => [dTag(e), e]));
 
 This applies equally to Dexie queries (`queryEvents`), relay subscriptions, and server cache queries.
 
+## Universal Loads (`+page.js`)
+
+Catalog pages use **universal load functions** (`+page.js`), not server-only loads (`+page.server.js`). This is critical for offline support: universal loads run in the browser during client-side navigation, so **no server round-trip is needed** when the user navigates between pages.
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│                     UNIVERSAL LOAD PATTERN                         │
+│                                                                    │
+│  Every catalog +page.js has this shape:                           │
+│                                                                    │
+│    if (browser) return { seedEvents: [] };  // ← client path      │
+│                                                                    │
+│    // SSR path: dynamic-import server module, query cache          │
+│    const { fetchApps } = await import('$lib/nostr/server.js');    │
+│    return { seedEvents: fetchApps(24) };                          │
+│                                                                    │
+│  SSR (first visit / hard refresh):                                │
+│    browser = false → dynamic-import server.js → query cache       │
+│    → seed events embedded in HTML → instant first paint            │
+│                                                                    │
+│  Client-side navigation (clicking links):                         │
+│    browser = true → return empty immediately → no server call     │
+│    → component mounts → liveQuery reads Dexie → instant render    │
+│                                                                    │
+│  Offline:                                                          │
+│    browser = true → return empty → Dexie provides all data        │
+│    → works identically to online client-side nav                  │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+**Why not `+page.server.js`?** Server-only loads force SvelteKit to fetch `/__data.json` from the server on every client-side navigation. When offline, that fetch fails and the app breaks. Universal loads eliminate this — the load runs in the browser, returns empty, and Dexie handles the rest.
+
+**Dynamic imports for server modules:** The `await import('$lib/nostr/server.js')` is behind the `if (browser)` guard. Since `browser` is replaced at build time by Vite (`true` in client build, `false` in SSR build), the server import is dead-code-eliminated from the client bundle entirely.
+
+**Detail pages (apps/[naddr], stacks/[naddr], profile/[npub]):** Same pattern, but components also include **Dexie fallback queries** for when server data is null (client-side nav). They decode the URL param, query Dexie for the event, and parse it locally.
+
+### When does the server load code run?
+
+| Scenario | Load runs on | Server cache queried? |
+|----------|-------------|----------------------|
+| User types URL directly (first visit) | Server (SSR) | Yes — seed events in HTML |
+| Hard refresh (Ctrl+R) | Server (SSR) | Yes — seed events in HTML |
+| Search engine / social preview crawl | Server (SSR) | Yes — seed events in HTML |
+| User clicks a link (client-side nav) | Browser | **No** — returns empty instantly |
+| User navigates back/forward | Browser | **No** — returns empty instantly |
+| Offline (any navigation) | Browser | **No** — Dexie provides data |
+
+After the initial SSR visit, the server is never called again until the user closes and reopens the tab (or hard refreshes).
+
 ## Rendering Strategy
 
 Every render path prioritizes local data:
 
 ### Initial Visit (New User)
 
-1. Server renders HTML with seed events from in-memory cache → **instant content**
+1. `+page.js` runs on server → dynamic-imports `server.js` → queries in-memory cache → seed events in HTML → **instant content**
 2. SvelteKit hydrates
 3. Seed events written to Dexie via `putEvents`
 4. liveQuery subscribers fire → UI updates reactively
 5. Client opens persistent relay connections → live events → Dexie → UI
 
+### Client-Side Navigation (Browsing Around)
+
+1. User clicks a link → SvelteKit runs `+page.js` **in the browser**
+2. `if (browser) return { seedEvents: [] }` → returns empty instantly, **no server call**
+3. Component mounts → liveQuery fires against Dexie → renders from local data
+4. Persistent relay subscriptions (already running since app shell loaded) keep Dexie fresh → liveQuery updates UI reactively
+
+No duplicate fetches, no server round-trips, no relay queries triggered by navigation.
+
 ### Return Visit (Local-First)
 
-1. Dexie (IndexedDB) already has cached events → **instant content**
+1. Service worker serves cached HTML shell → Dexie already has events → **instant content**
 2. liveQuery renders UI immediately from local data
 3. Client opens relay connections → new events → Dexie → UI updates reactively
 
 ### Offline
 
 1. Service worker serves cached HTML shell
-2. Dexie provides all data from IndexedDB
-3. UI renders fully from local data
-4. Relay connections skipped
-5. Offline banner shown
+2. Client-side navigation: `+page.js` returns empty in browser — **no server needed**
+3. Dexie provides all data from IndexedDB
+4. UI renders fully from local data
+5. Relay connections skipped
+6. Offline banner shown
 
 ### Build Time
 
@@ -361,8 +420,9 @@ Catalogs are Nostr relays that hold app events.
 
 ### Seeding the client
 
-- **Source:** Seed events come from the server response (prerender or SSR). The payload includes raw Nostr events.
-- **Flow:** Server queries in-memory cache → sends HTML + seed events. Client writes seed events to Dexie on hydration. liveQuery subscribers fire, UI updates. Client relay connections provide live updates → Dexie → liveQuery → UI.
+- **Source:** Seed events come from the SSR pass of universal `+page.js` loads. During SSR, the load function dynamic-imports `server.js`, queries the in-memory cache, and returns raw Nostr events in the page payload.
+- **One-time only:** Seeding happens once — on the initial SSR visit. All subsequent client-side navigation returns empty from the `+page.js` load (`if (browser) return ...`). Dexie already has data from the seed + ongoing relay subscriptions.
+- **Flow:** SSR: `+page.js` queries server cache → HTML + seed events → client hydrates → seed events written to Dexie → liveQuery fires → UI renders. After that: relay subscriptions keep Dexie fresh, liveQuery keeps UI reactive.
 
 ## Service Worker (PWA)
 
@@ -405,23 +465,26 @@ webapp/
 │       ├── +page.svelte           # Homepage / landing
 │       ├── api/
 │       │   └── image/             # Image proxy (only remaining API endpoint)
+│       ├── +error.svelte          # Error page (offline-aware)
 │       ├── discover/
 │       │   ├── +page.svelte       # Discover page (apps + stacks, reactive via liveQuery)
-│       │   └── +page.server.js    # Seed data (apps + stacks from cache)
+│       │   └── +page.js           # Universal load (SSR: seed data, browser: empty)
 │       ├── apps/
 │       │   ├── +page.svelte       # Apps listing (reactive via liveQuery)
-│       │   ├── +page.server.js    # Seed data (apps from cache)
+│       │   ├── +page.js           # Universal load (SSR: seed data, browser: empty)
 │       │   └── [naddr]/
 │       │       ├── +page.svelte   # App detail (releases fetched from relays)
-│       │       └── +page.server.js # Seed data (app from cache, no releases)
+│       │       └── +page.js       # Universal load (SSR: app from cache, browser: Dexie fallback)
 │       ├── stacks/
 │       │   ├── +page.svelte       # Stacks listing (reactive via liveQuery)
-│       │   ├── +page.server.js    # Seed data (stacks from cache)
+│       │   ├── +page.js           # Universal load (SSR: seed data, browser: empty)
 │       │   └── [naddr]/
-│       │       └── +page.svelte   # Stack detail
+│       │       ├── +page.svelte   # Stack detail (Dexie fallback for offline)
+│       │       └── +page.js       # Universal load (SSR: stack from cache, browser: Dexie fallback)
 │       └── profile/
 │           └── [npub]/
-│               └── +page.svelte   # Developer profile
+│               ├── +page.svelte   # Developer profile (Dexie fallback for offline)
+│               └── +page.js       # Universal load (SSR: profile from cache, browser: Dexie fallback)
 ├── static/                 # Static assets
 └── spec/                   # Documentation
 ```

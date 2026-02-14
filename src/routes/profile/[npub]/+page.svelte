@@ -4,7 +4,7 @@
  */
 import { onMount } from 'svelte';
 import { browser } from '$app/environment';
-import { fetchProfile, encodeAppNaddr, encodeStackNaddr } from '$lib/nostr';
+import { fetchProfile, queryEvents, encodeAppNaddr, encodeStackNaddr, parseApp, parseAppStack } from '$lib/nostr';
 import { nip19 } from 'nostr-tools';
 import { wheelScroll } from '$lib/actions/wheelScroll.js';
 import { parseShortText } from '$lib/utils/short-text-parser.js';
@@ -115,7 +115,7 @@ async function copyNpub() {
         // ignore
     }
 }
-onMount(() => {
+onMount(async () => {
     if (!pubkey || !browser)
         return;
     profile = data.profile ?? null;
@@ -123,7 +123,56 @@ onMount(() => {
     stacks = data.stacks ?? [];
     resolvedStacks = data.resolvedStacks ?? [];
     if (!profile)
-        loadProfile(pubkey);
+        await loadProfile(pubkey);
+    // Client-side navigation / offline: resolve from Dexie if no server data
+    if (apps.length === 0) {
+        appsLoading = true;
+        try {
+            const events = await queryEvents({ kinds: [32267], authors: [pubkey] });
+            apps = events.map(parseApp);
+        }
+        finally {
+            appsLoading = false;
+        }
+    }
+    if (stacks.length === 0) {
+        stacksLoading = true;
+        try {
+            const stackEvents = await queryEvents({ kinds: [30267], authors: [pubkey] });
+            const parsedStacks = stackEvents.map(parseAppStack);
+            stacks = parsedStacks;
+            // Resolve apps for each stack from Dexie (batch query)
+            const allIds = new Set();
+            for (const s of parsedStacks) {
+                for (const ref of s.appRefs || []) {
+                    if (ref.kind === 32267)
+                        allIds.add(ref.identifier);
+                }
+            }
+            if (allIds.size > 0) {
+                const appEvents = await queryEvents({ kinds: [32267], '#d': [...allIds] });
+                const byDTag = new Map();
+                for (const e of appEvents) {
+                    const a = parseApp(e);
+                    if (a.dTag)
+                        byDTag.set(a.dTag, a);
+                }
+                resolvedStacks = parsedStacks.map((s) => ({
+                    stack: s,
+                    apps: (s.appRefs || [])
+                        .filter((r) => r.kind === 32267)
+                        .map((r) => byDTag.get(r.identifier))
+                        .filter(Boolean)
+                }));
+            }
+            else {
+                resolvedStacks = parsedStacks.map((s) => ({ stack: s, apps: [] }));
+            }
+        }
+        finally {
+            stacksLoading = false;
+        }
+    }
 });
 $effect(() => {
     const about = profile?.about?.trim();
