@@ -4,9 +4,10 @@
  * Single server-side source of truth for seed data.
  *
  * Polling intervals:
- *   - Every 60s: top 50 apps (kind 32267) + top 50 stacks (kind 30267)
- *     from relay.zapstore.dev only
- *   - Every 60min: profiles (kind 0) for all cached pubkeys,
+ *   - Every 60s: top 72 apps (kind 32267) + top 36 stacks (kind 30267)
+ *     + releases (kind 30063) from relay.zapstore.dev only.
+ *     Releases are cached server-side ONLY for ranking — never shipped to clients.
+ *   - Every 6h: profiles (kind 0) for all cached pubkeys,
  *     from relay.vertexlab.io only
  *
  * On cold start, a full warm-up pull populates the cache. Then polling
@@ -21,6 +22,7 @@ import {
 	PLATFORM_FILTER,
 	POLL_INTERVAL_MS
 } from '$lib/config';
+import { APPS_POLL_LIMIT, STACKS_POLL_LIMIT } from '$lib/constants';
 
 const EOSE_GRACE_MS = 300;
 const QUERY_TIMEOUT_MS = 5000;
@@ -321,8 +323,11 @@ async function fetchStackReferencedApps(stackEvents, timeoutMs = QUERY_TIMEOUT_M
 
 /**
  * Initial warm-up: fetch catalog data from relay.zapstore.dev.
- * 1. Top 50 apps + top 30 stacks in parallel
+ * 1. Top APPS_POLL_LIMIT apps + STACKS_POLL_LIMIT stacks + releases in parallel
  * 2. Then fetch apps referenced by stacks (deduplicates with step 1)
+ *
+ * Releases are cached server-side ONLY for ranking apps by latest release.
+ * They are never shipped to clients in HTML or API responses.
  */
 async function warmUp() {
 	console.log('[RelayCache] Warming up...');
@@ -330,18 +335,24 @@ async function warmUp() {
 
 	try {
 		const [, stackResult] = await Promise.allSettled([
-			// Top 50 apps
+			// Top apps (APPS_POLL_LIMIT = 72)
 			queryRelaysRaw([CATALOG_RELAY], {
 				kinds: [EVENT_KINDS.APP],
 				...PLATFORM_FILTER,
-				limit: 50
+				limit: APPS_POLL_LIMIT
 			}, WARMUP_TIMEOUT_MS),
 
-			// Top 30 stacks
+			// Top stacks (STACKS_POLL_LIMIT = 36)
 			queryRelaysRaw([CATALOG_RELAY], {
 				kinds: [EVENT_KINDS.APP_STACK],
 				...PLATFORM_FILTER,
-				limit: 30
+				limit: STACKS_POLL_LIMIT
+			}, WARMUP_TIMEOUT_MS),
+
+			// Releases — server-side only, used for ranking apps by latest release
+			queryRelaysRaw([CATALOG_RELAY], {
+				kinds: [EVENT_KINDS.RELEASE],
+				limit: APPS_POLL_LIMIT * 3
 			}, WARMUP_TIMEOUT_MS),
 		]);
 
@@ -362,7 +373,7 @@ async function warmUp() {
 
 /**
  * Poll relay.zapstore.dev for new catalog events since last poll.
- * 1. Top 50 apps + top 30 stacks
+ * 1. Apps (APPS_POLL_LIMIT) + stacks (STACKS_POLL_LIMIT) + releases
  * 2. Then fetch apps referenced by any new stacks
  */
 async function pollCatalog() {
@@ -377,13 +388,19 @@ async function pollCatalog() {
 				kinds: [EVENT_KINDS.APP],
 				...PLATFORM_FILTER,
 				since,
-				limit: 50
+				limit: APPS_POLL_LIMIT
 			}),
 			queryRelaysRaw([CATALOG_RELAY], {
 				kinds: [EVENT_KINDS.APP_STACK],
 				...PLATFORM_FILTER,
 				since,
-				limit: 30
+				limit: STACKS_POLL_LIMIT
+			}),
+			// Releases — server-side only, for ranking
+			queryRelaysRaw([CATALOG_RELAY], {
+				kinds: [EVENT_KINDS.RELEASE],
+				since,
+				limit: APPS_POLL_LIMIT * 3
 			}),
 		]);
 

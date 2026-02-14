@@ -1,23 +1,25 @@
 /**
  * Apps listing page — universal load
  *
- * SSR: fetches seed events from the server's in-memory relay cache for instant first paint.
+ * SSR: fetches seed events (apps + their latest releases) from the server's
+ *      in-memory relay cache, sorted by latest release date.
+ *      Both event kinds are needed client-side: apps for display, releases for
+ *      liveQuery ordering.
+ *
  * Client-side navigation: returns empty — Dexie (IndexedDB) + liveQuery handle everything.
  * Offline: no server round-trip needed, page renders from local data.
  */
 import { browser } from '$app/environment';
+import { APPS_PAGE_SIZE } from '$lib/constants';
 
 export const prerender = false;
 
-/** Above-the-fold: 3-column grid × ~3 rows ≈ 9, plus scroll buffer */
-const SEED_APPS_LIMIT = 24;
-
 export const load = async () => {
 	// Client-side: Dexie + relay subscriptions are active, no seed data needed
-	if (browser) return { seedEvents: [] };
+	if (browser) return { seedEvents: [], appsCursor: null, appsHasMore: true };
 
-	// SSR: fetch seed data from server cache
-	const { fetchApps } = await import('$lib/nostr/server.js');
-	const seedEvents = fetchApps(SEED_APPS_LIMIT);
-	return { seedEvents };
+	// SSR: fetch apps + releases sorted by latest release (server-side ranking)
+	const { fetchAppsSortedByRelease } = await import('$lib/nostr/server.js');
+	const { events, cursor, hasMore } = fetchAppsSortedByRelease(APPS_PAGE_SIZE);
+	return { seedEvents: events, appsCursor: cursor, appsHasMore: hasMore };
 };

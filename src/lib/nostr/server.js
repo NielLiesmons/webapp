@@ -4,8 +4,8 @@
  * All functions query the in-memory relay cache (populated by polling).
  * Polling starts eagerly on server boot via hooks.server.js.
  *
- * Cache contains: apps (32267), stacks (30267), profiles (0).
- * NO releases — those are fetched client-side from relays.
+ * Cache contains: apps (32267), stacks (30267), releases (30063), profiles (0).
+ * Releases are cached server-side ONLY for ranking — never shipped to clients.
  *
  * Server-only module — never import from client code.
  */
@@ -16,6 +16,7 @@ import {
 	parseProfile
 } from './models';
 import { EVENT_KINDS, PLATFORM_FILTER } from '$lib/config';
+import { APPS_PAGE_SIZE } from '$lib/constants';
 
 // ============================================================================
 // Helpers
@@ -42,12 +43,29 @@ function dedupeEventsById(events) {
 }
 
 // ============================================================================
+// Helpers — release-based ordering
+// ============================================================================
+
+/**
+ * Extract app identifier from a release event.
+ * Checks 'i' tag first, then falls back to 'd' tag (stripping @version).
+ */
+function getReleaseIdentifier(event) {
+	const iTag = event.tags?.find((t) => t[0] === 'i' && typeof t[1] === 'string');
+	if (iTag) return iTag[1];
+	const dTag = event.tags?.find((t) => t[0] === 'd' && typeof t[1] === 'string');
+	if (!dTag) return null;
+	const [identifier] = dTag[1].split('@');
+	return identifier || null;
+}
+
+// ============================================================================
 // Public API — all synchronous cache queries
 // ============================================================================
 
 /**
  * Fetch app seed events ordered by created_at (most recent first).
- * Cache contains top 50 apps from polling. No releases on server.
+ * Simple fallback — use fetchAppsSortedByRelease() for listing pages.
  * Returns only raw events for Dexie seeding — parsing happens client-side via liveQuery.
  */
 export function fetchApps(limit = 50) {
@@ -60,6 +78,80 @@ export function fetchApps(limit = 50) {
 
 	const appEvents = queryCache(filter);
 	return dedupeEventsById(appEvents);
+}
+
+/**
+ * Fetch apps sorted by latest release date (most recently released first).
+ *
+ * Ranking: find the latest `limit` releases, deduplicate by app identifier,
+ * batch-query matching apps, return both app events AND their latest release.
+ * The client needs releases in Dexie for liveQuery ordering.
+ *
+ * @param {number} limit  — page size (default APPS_PAGE_SIZE)
+ * @param {number} [until] — release created_at cursor for pagination
+ * @returns {{ events: object[], cursor: number|null, hasMore: boolean }}
+ */
+export function fetchAppsSortedByRelease(limit = APPS_PAGE_SIZE, until) {
+	const platformTag = PLATFORM_FILTER['#f']?.[0];
+
+	// Find the latest releases (the ranking source)
+	const releaseFilter = { kinds: [EVENT_KINDS.RELEASE], limit };
+	if (until !== undefined) releaseFilter.until = until;
+	const releases = queryCache(releaseFilter);
+
+	if (releases.length === 0) {
+		return { events: [], cursor: null, hasMore: false };
+	}
+
+	// Deduplicate by app identifier — keep first occurrence (= latest release)
+	const seen = new Set();
+	const orderedIdentifiers = [];
+	const latestReleaseByApp = new Map();
+
+	for (const release of releases) {
+		const identifier = getReleaseIdentifier(release);
+		if (!identifier || seen.has(identifier)) continue;
+		seen.add(identifier);
+		orderedIdentifiers.push(identifier);
+		latestReleaseByApp.set(identifier, release);
+	}
+
+	// Batch query matching apps (single cache query — no N+1)
+	const appEvents = queryCache({
+		kinds: [EVENT_KINDS.APP],
+		'#d': orderedIdentifiers,
+		...(platformTag ? { '#f': [platformTag] } : {})
+	});
+
+	// Index apps by dTag (keep latest per identifier)
+	const appByIdentifier = new Map();
+	for (const app of appEvents) {
+		const dTag = app.tags?.find((t) => t[0] === 'd')?.[1];
+		if (!dTag) continue;
+		const existing = appByIdentifier.get(dTag);
+		if (!existing || app.created_at > existing.created_at) {
+			appByIdentifier.set(dTag, app);
+		}
+	}
+
+	// Build result: apps + their latest releases (both needed client-side)
+	const resultEvents = [];
+	let lastReleaseTime = null;
+
+	for (const id of orderedIdentifiers) {
+		const app = appByIdentifier.get(id);
+		const release = latestReleaseByApp.get(id);
+		if (app && release) {
+			resultEvents.push(app, release);
+			lastReleaseTime = release.created_at;
+		}
+	}
+
+	return {
+		events: dedupeEventsById(resultEvents),
+		cursor: lastReleaseTime != null ? lastReleaseTime - 1 : null,
+		hasMore: releases.length >= limit
+	};
 }
 
 /**

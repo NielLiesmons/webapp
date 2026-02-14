@@ -10,6 +10,7 @@
  */
 import { SimplePool } from 'nostr-tools';
 import { DEFAULT_CATALOG_RELAYS, DEFAULT_SOCIAL_RELAYS, PLATFORM_FILTER, EVENT_KINDS } from '$lib/config';
+import { APPS_POLL_LIMIT, STACKS_POLL_LIMIT } from '$lib/constants';
 import { putEvents, queryEvents } from './dexie';
 
 // ============================================================================
@@ -90,18 +91,17 @@ export function startLiveSubscriptions() {
 	};
 
 	// Separate subscriptions per filter (subscribeMany takes a single filter)
-	// Limits match the UI viewport — load-more handles deeper data
-	// Apps: discover/apps page seeds 50
+	// Limits = POLL_LIMIT (3 × page size) — load-more handles deeper data
 	activeSubscriptions.push(
-		p.subscribeMany(DEFAULT_CATALOG_RELAYS, { kinds: [EVENT_KINDS.APP], ...PLATFORM_FILTER, limit: 50 }, subParams)
+		p.subscribeMany(DEFAULT_CATALOG_RELAYS, { kinds: [EVENT_KINDS.APP], ...PLATFORM_FILTER, limit: APPS_POLL_LIMIT }, subParams)
 	);
-	// Releases: needed for app ordering in liveQuery (apps sorted by release recency)
+	// Releases: needed for app detail pages + liveQuery reactivity
 	activeSubscriptions.push(
-		p.subscribeMany(DEFAULT_CATALOG_RELAYS, { kinds: [EVENT_KINDS.RELEASE], limit: 50 }, subParams)
+		p.subscribeMany(DEFAULT_CATALOG_RELAYS, { kinds: [EVENT_KINDS.RELEASE], limit: APPS_POLL_LIMIT }, subParams)
 	);
-	// Stacks: discover/stacks page seeds 20
+	// Stacks
 	activeSubscriptions.push(
-		p.subscribeMany(DEFAULT_CATALOG_RELAYS, { kinds: [EVENT_KINDS.APP_STACK], ...PLATFORM_FILTER, limit: 20 }, subParams)
+		p.subscribeMany(DEFAULT_CATALOG_RELAYS, { kinds: [EVENT_KINDS.APP_STACK], ...PLATFORM_FILTER, limit: STACKS_POLL_LIMIT }, subParams)
 	);
 	console.log('[Service] Live subscriptions started');
 }

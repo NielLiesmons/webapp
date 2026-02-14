@@ -1,103 +1,141 @@
 <script lang="js">
-import { onMount, onDestroy } from 'svelte';
-import { browser } from '$app/environment';
-import { page } from '$app/stores';
-import AppSmallCard from '$lib/components/cards/AppSmallCard.svelte';
-import SkeletonLoader from '$lib/components/common/SkeletonLoader.svelte';
-import { parseApp } from '$lib/nostr/models';
-import { encodeAppNaddr } from '$lib/nostr/models';
-import { searchApps, fetchFromRelays } from '$lib/nostr/service';
-import { DEFAULT_CATALOG_RELAYS } from '$lib/config';
-import { createAppsQuery, seedEvents, getHasMore, isLoadingMore, loadMore } from '$lib/stores/nostr.svelte.js';
-import { getCached, setCached } from '$lib/stores/query-cache.js';
-const SCROLL_THRESHOLD = 800;
-let { data } = $props();
-// liveQuery-driven apps from Dexie (local-first, auto-updates)
-// Initialize from cache to avoid skeleton flash on back navigation.
-let liveApps = $state(getCached('apps'));
-// Pagination state from store
-const hasMore = $derived(getHasMore());
-const loadingMore = $derived(isLoadingMore());
-// Search query from URL (?q=...)
-const searchQ = $derived(browser ? ($page.url.searchParams.get('q')?.trim() ?? '') : '');
-// Search state
-let searchResults = $state(null);
-let searching = $state(false);
-let searchedQuery = $state('');
-// Data: always from liveQuery (Dexie). Skeleton until first emission.
-const baseApps = $derived(
-    liveApps !== null && liveApps.length > 0 ? liveApps : []
-);
-const displayApps = $derived(searchQ ? (searchResults ?? []) : baseApps);
-const isSearching = $derived(searchQ !== '' && (searching || searchResults === null));
-// Subscribe to Dexie liveQuery for reactive local-first data
-$effect(() => {
-    const sub = createAppsQuery().subscribe({
-        next: (value) => { liveApps = value; setCached('apps', value); },
-        error: (err) => console.error('[AppsPage] liveQuery error:', err)
-    });
-    return () => sub.unsubscribe();
-});
-function getAppUrl(app) {
-    const naddr = app.naddr || encodeAppNaddr(app.pubkey, app.dTag);
-    return `/apps/${naddr}`;
-}
-function shouldLoadMore() {
-    if (!browser) return false;
-    const scrollTop = window.scrollY || document.documentElement.scrollTop;
-    const scrollHeight = document.documentElement.scrollHeight;
-    const clientHeight = window.innerHeight;
-    return scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD;
-}
-function handleScroll() {
-    if (!searchQ && hasMore && !loadingMore && shouldLoadMore()) {
-        loadMore(fetchFromRelays, DEFAULT_CATALOG_RELAYS);
-    }
-}
-async function runSearch(query) {
-    if (!query) {
-        searchResults = null;
-        searchedQuery = '';
-        return;
-    }
-    if (query === searchedQuery && searchResults !== null) return;
-    searching = true;
-    try {
-        const events = await searchApps([...DEFAULT_CATALOG_RELAYS], query, { limit: 50 });
-        const seen = new Set();
-        const parsed = [];
-        for (const event of events) {
-            const app = parseApp(event);
-            const key = `${app.pubkey}:${app.dTag}`;
-            if (!seen.has(key)) {
-                seen.add(key);
-                parsed.push(app);
-            }
-        }
-        searchResults = parsed;
-        searchedQuery = query;
-    } catch (err) {
-        console.error('[AppsPage] Search failed:', err);
-        searchResults = [];
-    } finally {
-        searching = false;
-    }
-}
-$effect(() => {
-    if (browser) runSearch(searchQ);
-});
-onMount(() => {
-    if (!browser) return;
-    // Seed prerendered events into Dexie → liveQuery picks them up
-    seedEvents(data.seedEvents ?? []);
-    // Scroll listener for infinite scroll
-    window.addEventListener('scroll', handleScroll, { passive: true });
-});
-onDestroy(() => {
-    if (browser) {
-        window.removeEventListener('scroll', handleScroll);
-    }
-});
+	import { onMount, onDestroy } from 'svelte';
+	import { browser } from '$app/environment';
+	import { page } from '$app/stores';
+	import AppSmallCard from '$lib/components/cards/AppSmallCard.svelte';
+	import SkeletonLoader from '$lib/components/common/SkeletonLoader.svelte';
+	import { parseApp } from '$lib/nostr/models';
+	import { encodeAppNaddr } from '$lib/nostr/models';
+	import { searchApps } from '$lib/nostr/service';
+	import { DEFAULT_CATALOG_RELAYS } from '$lib/config';
+	import {
+		createAppsQuery,
+		seedEvents,
+		initPagination,
+		loadMoreApps,
+		startAppsRefresh,
+		stopAppsRefresh,
+		getHasMore,
+		isLoadingMore
+	} from '$lib/stores/nostr.svelte.js';
+	import { getCached, setCached } from '$lib/stores/query-cache.js';
+
+	const SCROLL_THRESHOLD = 800;
+
+	let { data } = $props();
+
+	// liveQuery-driven apps from Dexie (local-first, auto-updates)
+	// Initialize from cache to avoid skeleton flash on back navigation.
+	let liveApps = $state(getCached('apps'));
+
+	// Pagination state from store
+	const hasMore = $derived(getHasMore());
+	const loadingMore = $derived(isLoadingMore());
+
+	// Search query from URL (?q=...)
+	const searchQ = $derived(browser ? ($page.url.searchParams.get('q')?.trim() ?? '') : '');
+
+	// Search state
+	let searchResults = $state(null);
+	let searching = $state(false);
+	let searchedQuery = $state('');
+
+	// Data: always from liveQuery (Dexie). Skeleton until first emission.
+	const baseApps = $derived(liveApps !== null && liveApps.length > 0 ? liveApps : []);
+	const displayApps = $derived(searchQ ? (searchResults ?? []) : baseApps);
+	const isSearching = $derived(searchQ !== '' && (searching || searchResults === null));
+
+	// Subscribe to Dexie liveQuery for reactive local-first data
+	$effect(() => {
+		const sub = createAppsQuery().subscribe({
+			next: (value) => {
+				liveApps = value;
+				setCached('apps', value);
+			},
+			error: (err) => console.error('[AppsPage] liveQuery error:', err)
+		});
+		return () => sub.unsubscribe();
+	});
+
+	function getAppUrl(app) {
+		const naddr = app.naddr || encodeAppNaddr(app.pubkey, app.dTag);
+		return `/apps/${naddr}`;
+	}
+
+	function shouldLoadMore() {
+		if (!browser) return false;
+		const scrollTop = window.scrollY || document.documentElement.scrollTop;
+		const scrollHeight = document.documentElement.scrollHeight;
+		const clientHeight = window.innerHeight;
+		return scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD;
+	}
+
+	function handleScroll() {
+		if (!searchQ && hasMore && !loadingMore && shouldLoadMore()) {
+			loadMoreApps();
+		}
+	}
+
+	async function runSearch(query) {
+		if (!query) {
+			searchResults = null;
+			searchedQuery = '';
+			return;
+		}
+		if (query === searchedQuery && searchResults !== null) return;
+		searching = true;
+		try {
+			const events = await searchApps([...DEFAULT_CATALOG_RELAYS], query, { limit: 50 });
+			const seen = new Set();
+			const parsed = [];
+			for (const event of events) {
+				const app = parseApp(event);
+				const key = `${app.pubkey}:${app.dTag}`;
+				if (!seen.has(key)) {
+					seen.add(key);
+					parsed.push(app);
+				}
+			}
+			searchResults = parsed;
+			searchedQuery = query;
+		} catch (err) {
+			console.error('[AppsPage] Search failed:', err);
+			searchResults = [];
+		} finally {
+			searching = false;
+		}
+	}
+
+	$effect(() => {
+		if (browser) runSearch(searchQ);
+	});
+
+	onMount(async () => {
+		if (!browser) return;
+
+		// Seed SSR events into Dexie → liveQuery picks them up
+		seedEvents(data.seedEvents ?? []);
+		// Initialize pagination cursor from SSR response
+		initPagination(data.appsCursor, data.appsHasMore);
+
+		// If no data yet (client-side nav without SSR), fetch page 0 from API
+		if ((!data.seedEvents || data.seedEvents.length === 0) && navigator.onLine) {
+			await loadMoreApps();
+		}
+
+		// Start periodic page-0 refresh (every 60s)
+		startAppsRefresh();
+
+		// Scroll listener for infinite scroll
+		window.addEventListener('scroll', handleScroll, { passive: true });
+	});
+
+	onDestroy(() => {
+		if (browser) {
+			window.removeEventListener('scroll', handleScroll);
+			stopAppsRefresh();
+		}
+	});
 </script>
 
 <svelte:head>
@@ -108,7 +146,7 @@ onDestroy(() => {
 <section class="apps-page">
 	<div class="container mx-auto px-4 sm:px-6 lg:px-8">
 		<div class="page-header">
-			<h1>{searchQ ? `Search: "${searchQ}"` : 'All Apps'}</h1>
+			<h1>{searchQ ? `Search: "${searchQ}"` : 'Latest Apps'}</h1>
 		</div>
 
 		<div class="app-grid">

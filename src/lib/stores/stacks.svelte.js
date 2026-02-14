@@ -13,6 +13,7 @@ import { liveQuery } from 'dexie';
 import { putEvents, queryEvents } from '$lib/nostr/dexie';
 import { parseApp, parseAppStack } from '$lib/nostr/models';
 import { EVENT_KINDS, PLATFORM_FILTER } from '$lib/config';
+import { STACKS_PAGE_SIZE } from '$lib/constants';
 
 const platformTag = PLATFORM_FILTER['#f']?.[0];
 
@@ -112,10 +113,22 @@ export function createStacksQuery() {
 // ============================================================================
 
 /**
- * Seed events into Dexie (non-blocking).
+ * Seed events into Dexie and initialize pagination cursor.
+ * Called on mount with SSR-provided seed events.
  */
 export function seedStackEvents(events) {
 	if (events && events.length > 0) {
+		// Initialize cursor from oldest seeded stack (for relay-based load-more)
+		if (cursor === null) {
+			const stackEvents = events.filter((e) => e.kind === EVENT_KINDS.APP_STACK);
+			if (stackEvents.length > 0) {
+				const sorted = [...stackEvents].sort((a, b) => b.created_at - a.created_at);
+				const oldest = sorted[sorted.length - 1];
+				cursor = oldest.created_at - 1;
+				hasMore = stackEvents.length >= STACKS_PAGE_SIZE;
+			}
+		}
+
 		return putEvents(events).catch((err) =>
 			console.error('[StacksStore] Seed persist failed:', err)
 		);
@@ -140,7 +153,7 @@ export async function loadMoreStacks(fetchFromRelays, relayUrls) {
 		const filter = {
 			kinds: [EVENT_KINDS.APP_STACK],
 			until: cursor,
-			limit: 20
+			limit: STACKS_PAGE_SIZE
 		};
 		if (platformTag) filter['#f'] = [platformTag];
 		const events = await fetchFromRelays(relayUrls, filter);
@@ -148,7 +161,7 @@ export async function loadMoreStacks(fetchFromRelays, relayUrls) {
 		if (events.length > 0) {
 			const lastEvent = events[events.length - 1];
 			cursor = lastEvent.created_at - 1;
-			hasMore = events.length >= 20;
+			hasMore = events.length >= STACKS_PAGE_SIZE;
 		} else {
 			hasMore = false;
 		}
