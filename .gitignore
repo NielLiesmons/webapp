@@ -22,15 +22,5 @@ Thumbs.db
 
 # Logs
 *.log
-npm-debug.log*
 
-# Lock files (using bun)
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
-
-website
-zapstore
-relay.db
-relay.db-shm
-relay.db-wal
+publish.sh
