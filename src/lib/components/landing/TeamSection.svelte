@@ -111,7 +111,8 @@
 			blur: 0,
 			opacity: 1,
 			isZapperSlot: false,
-			nameLoading: false
+			nameLoading: false,
+			profileHref: '/profile/npub1t5u3wp5kj78jwnuphpf5mhx00nwwtfwq56d6j8atnu89gd454wcs6aj4c2'
 		},
 		{
 			name: 'Henrique',
@@ -123,7 +124,8 @@
 			blur: 0,
 			opacity: 1,
 			isZapperSlot: false,
-			nameLoading: false
+			nameLoading: false,
+			profileHref: '/profile/npub1y3yqdp44vg62ys8anqnjpx6cfprl848ev4lsmx5h4mznyz3xft9sen050h'
 		},
 		// TOP ROW (y: -175) - centered between middle row positions
 		{
@@ -149,7 +151,8 @@
 			blur: 0,
 			opacity: 1,
 			isZapperSlot: false,
-			nameLoading: false
+			nameLoading: false,
+			profileHref: '/profile/npub149p5act9a5qm9p47elp8w8h3wpwn2d7s2xecw2ygnrxqp4wgsklq9g722q'
 		},
 		{
 			name: 'Elsat',
@@ -189,7 +192,8 @@
 			blur: 0,
 			opacity: 1,
 			isZapperSlot: false,
-			nameLoading: false
+			nameLoading: false,
+			profileHref: '/profile/npub17xvf49kht23cddxgw92rvfktkd3vqvjgkgsdexh9847wl0927tqsrhc9as'
 		},
 		{
 			name: 'Freedom Tech Co.',
@@ -201,7 +205,8 @@
 			blur: 0,
 			opacity: 1,
 			isZapperSlot: false,
-			nameLoading: false
+			nameLoading: false,
+			profileHref: '/profile/npub1frdmtech5c3p6e8azwapy72tc289qeavr4mr9m55xl2nxae82r0sach4dd'
 		}
 	];
 
