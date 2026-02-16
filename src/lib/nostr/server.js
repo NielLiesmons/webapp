@@ -1,42 +1,26 @@
 /**
  * Server-side Nostr data facade
  *
- * All functions query the in-memory relay cache. Same export signatures
- * as before so +page.server.js and API endpoints work without changes.
+ * All functions query the in-memory relay cache (populated by polling).
+ * Polling starts eagerly on server boot via hooks.server.js.
+ *
+ * Cache contains: apps (32267), stacks (30267), releases (30063), profiles (0).
+ * Releases are cached server-side ONLY for ranking — never shipped to clients.
  *
  * Server-only module — never import from client code.
  */
-import {
-	queryCache,
-	fetchProfiles,
-	warmUp,
-	queryRelays
-} from './relay-cache';
+import { queryCache } from './relay-cache';
 import {
 	parseApp,
-	parseRelease,
 	parseAppStack,
 	parseProfile
 } from './models';
-import { EVENT_KINDS, DEFAULT_CATALOG_RELAYS, PLATFORM_FILTER } from '$lib/config';
+import { EVENT_KINDS, PLATFORM_FILTER } from '$lib/config';
+import { APPS_PAGE_SIZE } from '$lib/constants';
 
 // ============================================================================
 // Helpers
 // ============================================================================
-
-function getFirstTagValue(event, tagName) {
-	const tag = event.tags?.find((t) => t[0] === tagName && typeof t[1] === 'string');
-	return tag?.[1] ?? null;
-}
-
-function getReleaseIdentifier(event) {
-	const iTag = getFirstTagValue(event, 'i');
-	if (iTag) return iTag;
-	const dTag = getFirstTagValue(event, 'd');
-	if (!dTag) return null;
-	const [identifier] = dTag.split('@');
-	return identifier || null;
-}
 
 /**
  * Strip Symbol keys from a raw Nostr event so SvelteKit can serialize it.
@@ -59,99 +43,123 @@ function dedupeEventsById(events) {
 }
 
 // ============================================================================
-// Public API (same signatures as before)
+// Helpers — release-based ordering
 // ============================================================================
 
 /**
- * Fetch apps ordered by release recency.
- * Queries the relay cache for recent releases, resolves to their apps.
+ * Extract app identifier from a release event.
+ * Checks 'i' tag first, then falls back to 'd' tag (stripping @version).
  */
-export async function fetchAppsByReleases(limit = 20, until) {
-	await warmUp();
+function getReleaseIdentifier(event) {
+	const iTag = event.tags?.find((t) => t[0] === 'i' && typeof t[1] === 'string');
+	if (iTag) return iTag[1];
+	const dTag = event.tags?.find((t) => t[0] === 'd' && typeof t[1] === 'string');
+	if (!dTag) return null;
+	const [identifier] = dTag[1].split('@');
+	return identifier || null;
+}
 
+// ============================================================================
+// Public API — all synchronous cache queries
+// ============================================================================
+
+/**
+ * Fetch app seed events ordered by created_at (most recent first).
+ * Simple fallback — use fetchAppsSortedByRelease() for listing pages.
+ * Returns only raw events for Dexie seeding — parsing happens client-side via liveQuery.
+ */
+export function fetchApps(limit = 50) {
+	const platformTag = PLATFORM_FILTER['#f']?.[0];
+	const filter = {
+		kinds: [EVENT_KINDS.APP],
+		...(platformTag ? { '#f': [platformTag] } : {}),
+		limit
+	};
+
+	const appEvents = queryCache(filter);
+	return dedupeEventsById(appEvents);
+}
+
+/**
+ * Fetch apps sorted by latest release date (most recently released first).
+ *
+ * Ranking: find the latest `limit` releases, deduplicate by app identifier,
+ * batch-query matching apps, return both app events AND their latest release.
+ * The client needs releases in Dexie for liveQuery ordering.
+ *
+ * @param {number} limit  — page size (default APPS_PAGE_SIZE)
+ * @param {number} [until] — release created_at cursor for pagination
+ * @returns {{ events: object[], cursor: number|null, hasMore: boolean }}
+ */
+export function fetchAppsSortedByRelease(limit = APPS_PAGE_SIZE, until) {
 	const platformTag = PLATFORM_FILTER['#f']?.[0];
 
-	// Step 1: Get releases
+	// Find the latest releases (the ranking source)
 	const releaseFilter = { kinds: [EVENT_KINDS.RELEASE], limit };
 	if (until !== undefined) releaseFilter.until = until;
+	const releases = queryCache(releaseFilter);
 
-	const releaseEvents = queryCache(releaseFilter);
-
-	if (releaseEvents.length === 0) {
-		return { apps: [], releases: [], nextCursor: null, seedEvents: [] };
+	if (releases.length === 0) {
+		return { events: [], cursor: null, hasMore: false };
 	}
 
-	// Step 2: Extract app references from releases
-	const releaseRefs = releaseEvents.map((event) => ({
-		release: event,
-		identifier: getReleaseIdentifier(event)
-	}));
+	// Deduplicate by app identifier — keep first occurrence (= latest release)
+	const seen = new Set();
+	const orderedIdentifiers = [];
+	const latestReleaseByApp = new Map();
 
-	const identifiers = [
-		...new Set(releaseRefs.map((ref) => ref.identifier).filter(Boolean))
-	];
-
-	// Step 3: Find matching apps in cache
-	let appEvents = [];
-	if (identifiers.length > 0) {
-		const allApps = queryCache({
-			kinds: [EVENT_KINDS.APP],
-			...(platformTag ? { '#f': [platformTag] } : {})
-		});
-		// Filter to only apps matching our identifiers
-		const idSet = new Set(identifiers);
-		appEvents = allApps.filter((e) => {
-			const dTag = getFirstTagValue(e, 'd');
-			return dTag && idSet.has(dTag);
-		});
+	for (const release of releases) {
+		const identifier = getReleaseIdentifier(release);
+		if (!identifier || seen.has(identifier)) continue;
+		seen.add(identifier);
+		orderedIdentifiers.push(identifier);
+		latestReleaseByApp.set(identifier, release);
 	}
 
-	// Latest replaceable app event for (pubkey, d) and for d fallback
-	const latestByPubkeyAndD = new Map();
-	const latestByDOnly = new Map();
-	for (const appEvent of appEvents) {
-		const dTag = getFirstTagValue(appEvent, 'd');
+	// Batch query matching apps (single cache query — no N+1)
+	const appEvents = queryCache({
+		kinds: [EVENT_KINDS.APP],
+		'#d': orderedIdentifiers,
+		...(platformTag ? { '#f': [platformTag] } : {})
+	});
+
+	// Index apps by dTag (keep latest per identifier)
+	const appByIdentifier = new Map();
+	for (const app of appEvents) {
+		const dTag = app.tags?.find((t) => t[0] === 'd')?.[1];
 		if (!dTag) continue;
-		const key = `${appEvent.pubkey}:${dTag}`;
-		if (!latestByPubkeyAndD.has(key)) latestByPubkeyAndD.set(key, appEvent);
-		if (!latestByDOnly.has(dTag)) latestByDOnly.set(dTag, appEvent);
+		const existing = appByIdentifier.get(dTag);
+		if (!existing || app.created_at > existing.created_at) {
+			appByIdentifier.set(dTag, app);
+		}
 	}
 
-	const apps = [];
-	const selectedAppEvents = [];
-	const seenAppKeys = new Set();
+	// Build result: apps + their latest releases (both needed client-side)
+	const resultEvents = [];
+	let lastReleaseTime = null;
 
-	for (const { release, identifier } of releaseRefs) {
-		if (!identifier) continue;
-		const exactKey = `${release.pubkey}:${identifier}`;
-		const appEvent =
-			latestByPubkeyAndD.get(exactKey) ?? latestByDOnly.get(identifier);
-		if (!appEvent) continue;
-		const appKey = `${appEvent.pubkey}:${identifier}`;
-		if (seenAppKeys.has(appKey)) continue;
-		seenAppKeys.add(appKey);
-		apps.push(parseApp(appEvent));
-		selectedAppEvents.push(appEvent);
+	for (const id of orderedIdentifiers) {
+		const app = appByIdentifier.get(id);
+		const release = latestReleaseByApp.get(id);
+		if (app && release) {
+			resultEvents.push(app, release);
+			lastReleaseTime = release.created_at;
+		}
 	}
 
-	const releases = releaseEvents.map(parseRelease);
-	const lastRelease = releaseEvents[releaseEvents.length - 1];
-	const nextCursor =
-		releaseEvents.length === limit && lastRelease
-			? lastRelease.created_at - 1
-			: null;
-	const seedEvents = dedupeEventsById([...releaseEvents, ...selectedAppEvents]);
-
-	return { apps, releases, nextCursor, seedEvents };
+	return {
+		events: dedupeEventsById(resultEvents),
+		cursor: lastReleaseTime != null ? lastReleaseTime - 1 : null,
+		hasMore: releases.length >= limit
+	};
 }
 
 /**
  * Fetch a single app by pubkey and identifier.
- * Tries the in-memory cache first; on miss, queries upstream relays on demand.
+ * Returns { app, seedEvents } where seedEvents includes the raw app event
+ * and the publisher's profile event (if available in cache).
  */
-export async function fetchApp(pubkey, identifier) {
-	await warmUp();
-
+export function fetchApp(pubkey, identifier) {
 	const platformTag = PLATFORM_FILTER['#f']?.[0];
 	const filter = {
 		kinds: [EVENT_KINDS.APP],
@@ -161,93 +169,29 @@ export async function fetchApp(pubkey, identifier) {
 		limit: 1
 	};
 
-	// Try cache first
 	const cached = queryCache(filter);
-	if (cached.length > 0) return parseApp(cached[0]);
+	if (cached.length === 0) return null;
 
-	// Cache miss — fetch on-demand from upstream relays (auto-populates cache)
-	const relayResults = await queryRelays(DEFAULT_CATALOG_RELAYS, filter);
-	if (relayResults.length > 0) return parseApp(relayResults[0]);
+	const appEvent = cached[0];
+	const app = parseApp(appEvent);
 
-	return null;
+	// Get publisher profile from cache (populated by hourly profile poll)
+	const profileResults = queryCache({ kinds: [EVENT_KINDS.PROFILE], authors: [pubkey], limit: 1 });
+	const profileEvent = profileResults[0] ?? null;
+
+	const seedEvents = dedupeEventsById([
+		appEvent,
+		...(profileEvent ? [profileEvent] : [])
+	]);
+
+	return { app, seedEvents };
 }
 
 /**
- * Fetch latest release for an app.
- * Tries the in-memory cache first; on miss, queries upstream relays on demand.
+ * Fetch stack seed events with their referenced app events.
+ * Returns only raw events for Dexie seeding — parsing happens client-side via liveQuery.
  */
-export async function fetchLatestReleaseForApp(pubkey, identifier) {
-	await warmUp();
-
-	const aTagValue = `${EVENT_KINDS.APP}:${pubkey}:${identifier}`;
-
-	// Try cache by 'a' tag first (canonical)
-	let results = queryCache({
-		kinds: [EVENT_KINDS.RELEASE],
-		'#a': [aTagValue],
-		limit: 1
-	});
-
-	if (results.length === 0) {
-		// Fallback: by author + 'i' tag in cache
-		const allReleases = queryCache({
-			kinds: [EVENT_KINDS.RELEASE],
-			authors: [pubkey],
-			limit: 100
-		});
-		results = allReleases.filter((e) => {
-			const iTag = getFirstTagValue(e, 'i');
-			if (iTag === identifier) return true;
-			const dTag = getFirstTagValue(e, 'd');
-			return dTag?.startsWith(`${identifier}@`);
-		});
-	}
-
-	if (results.length > 0) return parseRelease(results[0]);
-
-	// Cache miss — fetch on-demand from upstream relays (auto-populates cache)
-	const relayResults = await queryRelays(DEFAULT_CATALOG_RELAYS, {
-		kinds: [EVENT_KINDS.RELEASE],
-		'#a': [aTagValue],
-		limit: 1
-	});
-	if (relayResults.length > 0) return parseRelease(relayResults[0]);
-
-	return null;
-}
-
-/**
- * Fetch releases for an app.
- * Tries the in-memory cache first; on miss, queries upstream relays on demand.
- */
-export async function fetchReleasesForApp(pubkey, identifier, limit = 50) {
-	await warmUp();
-
-	const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
-	const aTagValue = `${EVENT_KINDS.APP}:${pubkey}:${identifier}`;
-	const platformTag = PLATFORM_FILTER['#f']?.[0];
-	const filter = {
-		kinds: [EVENT_KINDS.RELEASE],
-		'#a': [aTagValue],
-		...(platformTag ? { '#f': [platformTag] } : {}),
-		limit: safeLimit
-	};
-
-	// Try cache first
-	const cached = queryCache(filter);
-	if (cached.length > 0) return cached.map(parseRelease);
-
-	// Cache miss — fetch on-demand from upstream relays (auto-populates cache)
-	const relayResults = await queryRelays(DEFAULT_CATALOG_RELAYS, filter);
-	return relayResults.map(parseRelease);
-}
-
-/**
- * Fetch stacks with resolved apps.
- */
-export async function fetchStacks(limit = 20, until) {
-	await warmUp();
-
+export function fetchStacks(limit = 20, until) {
 	const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
 	const platformTag = PLATFORM_FILTER['#f']?.[0];
 	const filter = {
@@ -260,36 +204,16 @@ export async function fetchStacks(limit = 20, until) {
 	const stackEvents = queryCache(filter);
 	const stacks = stackEvents.map(parseAppStack);
 
-	// Resolve apps for all stacks in a single batch query
-	const appsByStackId = resolveMultipleStackAppsFromCache(stacks);
-	const resolvedStacks = [];
-	const selectedAppEvents = [];
+	// Resolve referenced apps — get raw events directly from cache (no duplication)
+	const { appEvents } = resolveMultipleStackAppsFromCache(stacks);
 
-	for (const stack of stacks) {
-		const apps = appsByStackId.get(stack.id) ?? [];
-		selectedAppEvents.push(
-			...apps.map((a) => a.rawEvent).filter(Boolean)
-		);
-		resolvedStacks.push({ stack, apps });
-	}
-
-	const lastStack = stackEvents[stackEvents.length - 1];
-	const nextCursor =
-		stackEvents.length === safeLimit && lastStack
-			? lastStack.created_at - 1
-			: null;
-	const seedEvents = dedupeEventsById([...stackEvents, ...selectedAppEvents]);
-
-	return { stacks, resolvedStacks, nextCursor, seedEvents };
+	return dedupeEventsById([...stackEvents, ...appEvents]);
 }
 
 /**
  * Fetch a single stack with apps and creator profile.
- * Tries the in-memory cache first; on miss, queries upstream relays on demand.
  */
-export async function fetchStack(pubkey, identifier) {
-	await warmUp();
-
+export function fetchStack(pubkey, identifier) {
 	const platformTag = PLATFORM_FILTER['#f']?.[0];
 	const filter = {
 		kinds: [EVENT_KINDS.APP_STACK],
@@ -299,28 +223,21 @@ export async function fetchStack(pubkey, identifier) {
 		limit: 1
 	};
 
-	// Try cache first
-	let results = queryCache(filter);
-
-	// Cache miss — fetch on-demand from upstream relays
-	if (results.length === 0) {
-		results = await queryRelays([...DEFAULT_CATALOG_RELAYS], filter);
-	}
-
+	const results = queryCache(filter);
 	if (results.length === 0) return null;
 
 	const stackEvent = results[0];
 	const stack = parseAppStack(stackEvent);
-	const apps = await resolveStackApps(stack);
+	const { apps, appEvents } = resolveStackAppsFromCache(stack);
 
-	// Fetch creator profile
-	const profileMap = await fetchProfiles([pubkey]);
-	const profileEvent = profileMap.get(pubkey);
+	// Get creator profile from cache (populated by hourly profile poll)
+	const profileResults = queryCache({ kinds: [EVENT_KINDS.PROFILE], authors: [pubkey], limit: 1 });
+	const profileEvent = profileResults[0] ?? null;
 	const creator = profileEvent ? parseProfile(profileEvent) : null;
 
 	const seedEvents = dedupeEventsById([
 		stackEvent,
-		...apps.map((a) => a.rawEvent).filter(Boolean),
+		...appEvents,
 		...(profileEvent ? [profileEvent] : [])
 	]);
 
@@ -329,11 +246,8 @@ export async function fetchStack(pubkey, identifier) {
 
 /**
  * Fetch apps by author.
- * Tries the in-memory cache first; on miss, queries upstream relays on demand.
  */
-export async function fetchAppsByAuthor(pubkey, limit = 50) {
-	await warmUp();
-
+export function fetchAppsByAuthor(pubkey, limit = 50) {
 	const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
 	const platformTag = PLATFORM_FILTER['#f']?.[0];
 	const filter = {
@@ -343,22 +257,14 @@ export async function fetchAppsByAuthor(pubkey, limit = 50) {
 		limit: safeLimit
 	};
 
-	// Try cache first
 	const cached = queryCache(filter);
-	if (cached.length > 0) return cached.map(parseApp);
-
-	// Cache miss — fetch on-demand from upstream relays (auto-populates cache)
-	const relayResults = await queryRelays(DEFAULT_CATALOG_RELAYS, filter);
-	return relayResults.map(parseApp);
+	return cached.map(parseApp);
 }
 
 /**
  * Fetch stacks by author.
- * Tries the in-memory cache first; on miss, queries upstream relays on demand.
  */
-export async function fetchStacksByAuthor(pubkey, limit = 50) {
-	await warmUp();
-
+export function fetchStacksByAuthor(pubkey, limit = 50) {
 	const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
 	const platformTag = PLATFORM_FILTER['#f']?.[0];
 	const filter = {
@@ -368,15 +274,10 @@ export async function fetchStacksByAuthor(pubkey, limit = 50) {
 		limit: safeLimit
 	};
 
-	// Try cache first, then relays
-	let stackEvents = queryCache(filter);
-	if (stackEvents.length === 0) {
-		stackEvents = await queryRelays([...DEFAULT_CATALOG_RELAYS], filter);
-	}
-
+	const stackEvents = queryCache(filter);
 	const stacks = stackEvents.map(parseAppStack);
 
-	const appsByStackId = resolveMultipleStackAppsFromCache(stacks);
+	const { appsByStackId } = resolveMultipleStackAppsFromCache(stacks);
 	const resolvedStacks = [];
 	for (const stack of stacks) {
 		const apps = appsByStackId.get(stack.id) ?? [];
@@ -387,12 +288,31 @@ export async function fetchStacksByAuthor(pubkey, limit = 50) {
 }
 
 /**
- * Fetch profiles (server-side).
- * Used by /api/profiles endpoint.
+ * Fetch profiles from server cache.
+ * Returns a Map of pubkey -> profile event.
+ * Profiles are populated by hourly polling from vertexlab relay.
  */
-export async function fetchProfilesServer(pubkeys, options = {}) {
-	await warmUp();
-	return fetchProfiles(pubkeys, options);
+export function fetchProfilesServer(pubkeys) {
+	const results = new Map();
+	if (!pubkeys || pubkeys.length === 0) return results;
+
+	const normalized = [
+		...new Set(
+			pubkeys
+				.map((pk) => String(pk).trim().toLowerCase())
+				.filter((pk) => /^[a-f0-9]{64}$/.test(pk))
+		)
+	];
+
+	const cachedProfiles = queryCache({ kinds: [EVENT_KINDS.PROFILE], authors: normalized });
+	for (const event of cachedProfiles) {
+		const pk = event.pubkey?.toLowerCase();
+		if (pk && !results.has(pk)) {
+			results.set(pk, event);
+		}
+	}
+
+	return results;
 }
 
 // ============================================================================
@@ -401,16 +321,15 @@ export async function fetchProfilesServer(pubkeys, options = {}) {
 
 /**
  * Resolve apps referenced by multiple stacks (cache only, single batch query).
- * Used by listing functions where speed matters — no relay queries.
- * Returns a Map from stack event id to parsed app array.
+ * Returns { appsByStackId: Map<stackId, parsedApp[]>, appEvents: rawEvent[] }.
+ * appEvents are the raw cache events — no duplication with parsed models.
  */
 function resolveMultipleStackAppsFromCache(stacks) {
-	const result = new Map();
-	if (!stacks || stacks.length === 0) return result;
+	const appsByStackId = new Map();
+	if (!stacks || stacks.length === 0) return { appsByStackId, appEvents: [] };
 
 	const platformTag = PLATFORM_FILTER['#f']?.[0];
 
-	// Collect all unique app refs across all stacks
 	const allRefKeys = new Set();
 	const allAuthors = new Set();
 	const allIdentifiers = new Set();
@@ -426,11 +345,10 @@ function resolveMultipleStackAppsFromCache(stacks) {
 	}
 
 	if (allRefKeys.size === 0) {
-		for (const stack of stacks) result.set(stack.id, []);
-		return result;
+		for (const stack of stacks) appsByStackId.set(stack.id, []);
+		return { appsByStackId, appEvents: [] };
 	}
 
-	// Single batch cache query for all referenced apps
 	const cachedResults = queryCache({
 		kinds: [EVENT_KINDS.APP],
 		authors: [...allAuthors],
@@ -438,7 +356,6 @@ function resolveMultipleStackAppsFromCache(stacks) {
 		...(platformTag ? { '#f': [platformTag] } : {})
 	});
 
-	// Build lookup map: "pubkey:dTag" -> event (first/latest wins due to sort order)
 	const appEventsByKey = new Map();
 	for (const event of cachedResults) {
 		const dTag = event.tags?.find((t) => t[0] === 'd')?.[1] ?? '';
@@ -448,7 +365,6 @@ function resolveMultipleStackAppsFromCache(stacks) {
 		}
 	}
 
-	// Resolve each stack's apps in original order
 	for (const stack of stacks) {
 		const apps = [];
 		if (stack?.appRefs) {
@@ -459,23 +375,24 @@ function resolveMultipleStackAppsFromCache(stacks) {
 				if (event) apps.push(parseApp(event));
 			}
 		}
-		result.set(stack.id, apps);
+		appsByStackId.set(stack.id, apps);
 	}
 
-	return result;
+	// Collect unique raw events for seeding (no rawEvent on parsed models)
+	const appEvents = [...appEventsByKey.values()];
+
+	return { appsByStackId, appEvents };
 }
 
 /**
- * Resolve apps referenced by a stack (with relay fallback, batched).
- * Used by single-item detail lookups where completeness matters.
- * Makes at most 1 cache query + 1 relay query (for any cache misses).
+ * Resolve apps referenced by a single stack (cache only).
+ * Returns { apps: parsedApp[], appEvents: rawEvent[] }.
  */
-async function resolveStackApps(stack) {
-	if (!stack?.appRefs || stack.appRefs.length === 0) return [];
+function resolveStackAppsFromCache(stack) {
+	if (!stack?.appRefs || stack.appRefs.length === 0) return { apps: [], appEvents: [] };
 
 	const platformTag = PLATFORM_FILTER['#f']?.[0];
 
-	// Collect all unique app refs
 	const refsByKey = new Map();
 	const allAuthors = new Set();
 	const allIdentifiers = new Set();
@@ -488,9 +405,8 @@ async function resolveStackApps(stack) {
 		allIdentifiers.add(ref.identifier);
 	}
 
-	if (refsByKey.size === 0) return [];
+	if (refsByKey.size === 0) return { apps: [], appEvents: [] };
 
-	// Single batch cache query
 	const cachedResults = queryCache({
 		kinds: [EVENT_KINDS.APP],
 		authors: [...allAuthors],
@@ -498,7 +414,6 @@ async function resolveStackApps(stack) {
 		...(platformTag ? { '#f': [platformTag] } : {})
 	});
 
-	// Build lookup map from cache hits
 	const appsByKey = new Map();
 	for (const event of cachedResults) {
 		const dTag = event.tags?.find((t) => t[0] === 'd')?.[1] ?? '';
@@ -508,34 +423,6 @@ async function resolveStackApps(stack) {
 		}
 	}
 
-	// Find cache misses and batch-fetch from relays
-	const missingAuthors = new Set();
-	const missingIdentifiers = new Set();
-	for (const [key, ref] of refsByKey) {
-		if (!appsByKey.has(key)) {
-			missingAuthors.add(ref.pubkey);
-			missingIdentifiers.add(ref.identifier);
-		}
-	}
-
-	if (missingAuthors.size > 0) {
-		const relayResults = await queryRelays(DEFAULT_CATALOG_RELAYS, {
-			kinds: [EVENT_KINDS.APP],
-			authors: [...missingAuthors],
-			'#d': [...missingIdentifiers],
-			...(platformTag ? { '#f': [platformTag] } : {})
-		});
-
-		for (const event of relayResults) {
-			const dTag = event.tags?.find((t) => t[0] === 'd')?.[1] ?? '';
-			const key = `${event.pubkey}:${dTag}`;
-			if (refsByKey.has(key) && !appsByKey.has(key)) {
-				appsByKey.set(key, event);
-			}
-		}
-	}
-
-	// Resolve in original order
 	const apps = [];
 	for (const ref of stack.appRefs) {
 		if (ref.kind !== EVENT_KINDS.APP) continue;
@@ -544,12 +431,5 @@ async function resolveStackApps(stack) {
 		if (event) apps.push(parseApp(event));
 	}
 
-	return apps;
-}
-
-/**
- * Cleanup (called on server shutdown if needed).
- */
-export function closeServerPool() {
-	// No-op for now; SimplePool handles its own cleanup
+	return { apps, appEvents: [...appsByKey.values()] };
 }

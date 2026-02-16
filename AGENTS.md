@@ -30,14 +30,22 @@ and browsing apps distributed via Nostr app catalogs.
 | `work/*.md` | AI | Yes |
 | `src/**` | Shared | Yes |
 
+## Spec Loading
+
+All specs in `spec/guidelines/` have YAML frontmatter and are symlinked into `.cursor/rules/` as `.mdc` files. Cursor loads them automatically:
+
+- **Always loaded**: ARCHITECTURE, INVARIANTS, QUALITY_BAR, VISION (`alwaysApply: true`)
+- **Loaded when editing UI**: DESIGN_SYSTEM (glob-scoped to `*.svelte`, `*.css`)
+
+Do NOT re-read these files — their content is already in your context.
+
 ## Rules
 
-1. Read `spec/guidelines/ARCHITECTURE.md` first for technical context
-2. Never modify files in `spec/guidelines/` without explicit permission
-3. If a spec is unclear, report it—do not guess
-4. Prefer small, localized changes. Avoid unrelated refactors.
-5. After dependency changes, run: `bun install`
-6. Fix any TypeScript/lint errors introduced by your changes
+1. Never modify files in `spec/guidelines/` without explicit permission
+2. If a spec is unclear, report it—do not guess
+3. Prefer small, localized changes. Avoid unrelated refactors.
+4. After dependency changes, run: `bun install`
+5. Fix any TypeScript/lint errors introduced by your changes
 
 ## Spec-First Workflow
 
@@ -57,7 +65,7 @@ For non-trivial work, changes are not complete unless:
 
 ```bash
 bun run dev      # Development server
-bun run build    # Build for production (prerenders all pages)
+bun run build    # Build for production (static content only; catalog pages are SSR)
 bun run preview  # Preview production build
 bun run check    # TypeScript check
 ```
@@ -66,10 +74,11 @@ bun run check    # TypeScript check
 
 SvelteKit app with Nostr-native data layer:
 
-- **Server**: In-memory Nostr relay cache fed by reconnectable pool (upstream relays). REST API returns Nostr events.
+- **Server**: In-memory Nostr relay cache fed by polling (every 60s). Cache starts on server boot and stays fresh.
 - **Client**: Dexie.js (IndexedDB) with `liveQuery` for reactive queries. No separate in-memory EventStore.
-- **Prerendering**: All pages built at deploy time via `+page.server.js` (queries relay cache)
+- **Server-rendering**: Catalog pages (apps, stacks, discover) are server-rendered at runtime with seed data from in-memory cache.
+- **Prerendering**: Only static content pages (blog, docs, marketing) are prerendered at build time.
 - **Local-first**: Dexie (IndexedDB) is the single client-side source of truth
-- **Background refresh**: API fetches write to Dexie → liveQuery updates UI reactively
+- **Background refresh**: Persistent relay connections write to Dexie → liveQuery updates UI reactively
 
 See `spec/guidelines/ARCHITECTURE.md` for details.

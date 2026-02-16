@@ -3,7 +3,9 @@ import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { page } from "$app/stores";
 import { Package, X } from "lucide-svelte";
-import { queryEvents, queryEvent, queryCommentsFromStore, parseApp, parseRelease, fetchProfile, fetchProfilesBatch, fetchComments, fetchCommentRepliesByE, fetchZaps, parseComment, parseZapReceipt, encodeAppNaddr, publishComment, decodeNaddr, putEvents } from "$lib/nostr";
+import { queryEvents, queryEvent, queryCommentsFromStore, parseApp, parseRelease, fetchProfile, fetchProfilesBatch, fetchComments, fetchCommentRepliesByE, fetchZaps, parseComment, parseZapReceipt, encodeAppNaddr, publishComment, decodeNaddr, putEvents, } from "$lib/nostr";
+import { fetchFromRelays } from "$lib/nostr/service";
+import { DEFAULT_CATALOG_RELAYS } from "$lib/config";
 import SkeletonLoader from "$lib/components/common/SkeletonLoader.svelte";
 import { nip19 } from "nostr-tools";
 import { EVENT_KINDS, PLATFORM_FILTER } from "$lib/config";
@@ -17,6 +19,7 @@ import DownloadModal from "$lib/components/common/DownloadModal.svelte";
 import { createSearchProfilesFunction, ZAPSTORE_PUBKEY } from "$lib/services/profile-search";
 import { createSearchEmojisFunction } from "$lib/services/emoji-search";
 import { getCurrentPubkey, getIsSignedIn, signEvent } from "$lib/stores/auth.svelte.js";
+import { isOnline } from "$lib/stores/online.svelte.js";
 import { renderMarkdown } from "$lib/utils/markdown";
 let { data } = $props();
 const searchProfiles = $derived(createSearchProfilesFunction(() => getCurrentPubkey()));
@@ -36,6 +39,8 @@ let isTruncated = $state(false);
 let carouselOpen = $state(false);
 let currentImageIndex = $state(0);
 let carouselImageLoaded = $state(false);
+// Track which thumbnail screenshots have loaded
+let thumbsLoaded = $state(new Set());
 // Comments and zaps state (comments may have pending + npub for display)
 let comments = $state([]);
 let commentsLoading = $state(false);
@@ -228,34 +233,6 @@ async function loadComments() {
         commentsLoading = false;
     }
 }
-
-// Merge zaps with comments into the comments feed
-function mergeZapsIntoComments() {
-    const zapsWithComments = zaps
-        .filter((z) => z.comment && z.comment.trim())
-        .map((z) => ({
-            id: z.id,
-            pubkey: z.senderPubkey || '',
-            content: z.comment || '',
-            contentHtml: z.comment || '',
-            emojiTags: z.emojiTags || [],
-            createdAt: z.createdAt,
-            parentId: z.zappedEventId || null,
-            isReply: !!z.zappedEventId,
-            pending: false,
-            npub: z.senderPubkey ? nip19.npubEncode(z.senderPubkey) : ''
-        }));
-    
-    // Merge and deduplicate
-    const allComments = [...comments, ...zapsWithComments];
-    const uniqueById = new Map();
-    for (const comment of allComments) {
-        if (!uniqueById.has(comment.id)) {
-            uniqueById.set(comment.id, comment);
-        }
-    }
-    comments = Array.from(uniqueById.values());
-}
 /** Load replies that reference our comments/zaps via #e (e.g. from other apps that don't add #a). Returns all comment ids after merge (so caller can fetch zaps on them). */
 async function loadCommentReplies() {
     if (!app?.pubkey || !app?.dTag)
@@ -304,8 +281,6 @@ async function loadZaps() {
         };
         zaps = Array.from(byId.values()).map(parseOne);
         await hydrateZapperProfiles();
-        // After zaps load, merge into comments
-        mergeZapsIntoComments();
     }
     catch (err) {
         console.error("Failed to load zaps:", err);
@@ -344,8 +319,6 @@ async function loadZapsByMainFeedIds(mainFeedEventIds) {
         }
         zaps = merged;
         await hydrateZapperProfiles();
-        // After loading more zaps, merge again into comments
-        mergeZapsIntoComments();
     }
     catch (err) {
         console.error("Failed to load zaps by main feed ids:", err);
@@ -450,35 +423,35 @@ async function handleCommentSubmit(event) {
 }
 async function loadReleases() {
     if (!app?.pubkey || !app?.dTag) return;
-    
     releasesLoading = true;
     try {
-        // Query Dexie for cached releases
+        // Fetch releases from relays (server doesn't cache releases)
         const aTagValue = `${EVENT_KINDS.APP}:${app.pubkey}:${app.dTag}`;
-        const cachedReleases = await queryEvents({
+        await fetchFromRelays(DEFAULT_CATALOG_RELAYS, {
             kinds: [EVENT_KINDS.RELEASE],
-            "#a": [aTagValue],
-            ...PLATFORM_FILTER,
+            '#a': [aTagValue],
+            limit: 50
         });
-        
-        if (cachedReleases.length > 0) {
-            releases = cachedReleases.map(parseRelease).sort((a, b) => b.createdAt - a.createdAt);
-        } else {
-            // Fallback to server data
-            releases = data.releases ?? [];
+        // Read from Dexie (fetchFromRelays wrote them there)
+        const releaseEvents = await queryEvents({
+            kinds: [EVENT_KINDS.RELEASE],
+            '#a': [aTagValue],
+            limit: 50
+        });
+        releases = releaseEvents.map(parseRelease);
+        if (releases.length > 0 && !latestRelease) {
+            latestRelease = releases[0];
         }
-        
-        // Get ALL zaps on ALL releases
-        if (releases.length > 0) {
-            const allReleaseIds = releases.flatMap((rel) => [rel.id, ...(rel.artifacts ?? [])]);
-            if (allReleaseIds.length > 0) {
-                loadZapsByMainFeedIds(allReleaseIds);
-            }
+        // Re-fetch zaps with release/metadata ids
+        const latest = releases[0];
+        if (latest && app?.pubkey && app?.dTag) {
+            const ids = [latest.id, ...(latest.artifacts ?? [])];
+            loadZapsByMainFeedIds(ids);
         }
     }
     catch (err) {
         console.error("Failed to load releases:", err);
-        releases = data.releases ?? [];
+        releases = [];
     }
     finally {
         releasesLoading = false;
@@ -511,21 +484,36 @@ onMount(async () => {
     if (cachedRelease) {
         latestRelease = parseRelease(cachedRelease);
     }
-    // 2. Supplement with server data (may be fresher or have releases)
-    if (data.app) {
-        if (!app) {
-            app = data.app;
+    // 2. Supplement with server data (may be fresher)
+    if (data.app && !app) {
+        app = data.app;
+        error = null;
+    }
+    // 3. Not in cache or Dexie: try relays once before showing 404 (online only)
+    if (!app && isOnline()) {
+        const events = await fetchFromRelays(DEFAULT_CATALOG_RELAYS, {
+            kinds: [EVENT_KINDS.APP],
+            authors: [_pubkey],
+            '#d': [_identifier],
+            ...PLATFORM_FILTER,
+            limit: 1
+        });
+        if (events.length > 0) {
+            app = parseApp(events[0]);
             error = null;
         }
-        if (data.latestRelease && !latestRelease) {
-            latestRelease = data.latestRelease;
-        }
-        releases = data.releases ?? [];
     }
-    // 3. If neither Dexie nor server had the app, show error
+    // 4. If still no app, show error
     if (!app) {
         error = data.error ?? 'App not found';
         return;
+    }
+    // Seed server events (app + publisher profile) into Dexie so subsequent
+    // queries (e.g. loadPublisherProfile) find them locally without relay fetch.
+    if (data.seedEvents?.length > 0) {
+        await putEvents(data.seedEvents).catch((err) =>
+            console.error('[AppDetail] Seed persist failed:', err)
+        );
     }
     // Hydrate social data from Dexie (local-first)
     const cachedCommentEvents = await queryCommentsFromStore(_pubkey, _identifier);
@@ -555,9 +543,6 @@ onMount(async () => {
     loadPublisherProfile(_pubkey);
     // Background cascade: comments, zaps, then replies by #e
     Promise.all([loadComments(), loadZaps()]).then(async () => {
-        // After BOTH are loaded, merge zaps with comments into comments feed
-        mergeZapsIntoComments();
-        
         const mainFeedZapIds = zaps.filter((z) => !z.zappedEventId).map((z) => z.id);
         const allCommentIds = await loadCommentReplies();
         loadZapsByMainFeedIds([...allCommentIds, ...mainFeedZapIds]);
@@ -693,7 +678,19 @@ function toggleReleaseNotesExpanded(id) {
               onclick={() => openCarousel(index)}
               class="screenshot-thumb relative flex-shrink-0 overflow-hidden cursor-pointer group focus:outline-none"
             >
-              <img src={image} alt="Screenshot {index + 1}" class="w-full h-auto object-cover" loading="lazy" />
+              {#if !thumbsLoaded.has(index)}
+                <div class="screenshot-skeleton">
+                  <SkeletonLoader />
+                </div>
+              {/if}
+              <img
+                src={image}
+                alt="Screenshot {index + 1}"
+                class="screenshot-img"
+                class:loaded={thumbsLoaded.has(index)}
+                loading="lazy"
+                onload={() => { thumbsLoaded = new Set(thumbsLoaded).add(index); }}
+              />
             </button>
           {/each}
         </div>
@@ -735,7 +732,7 @@ function toggleReleaseNotesExpanded(id) {
               {/if}
             </div>
             <!-- 2. Open source (check) or Closed-source (line) -->
-            <div class="panel-list-item flex items-center gap-2" style="color: hsl(var(--white66)); opacity: 0.92; transform: scale(0.98); transform-origin: left;">
+            <div class="panel-list-item flex items-center gap-2" style="color: hsl(var(--white66)); opacity: 0.9; transform: scale(0.98); transform-origin: left;">
               {#if hasRepository}
                 <svg class="security-check flex-shrink-0" width="14" height="10" viewBox="0 0 18 12" fill="none">
                   <path d="M6.2 11.2L0.7 5.7L6.2 10.95L16.7 0.7L6.2 11.2Z" stroke="hsl(var(--blurpleColor))" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
@@ -747,7 +744,7 @@ function toggleReleaseNotesExpanded(id) {
               {/if}
             </div>
             <!-- 3. Trusted Catalog: always for all apps -->
-            <div class="panel-list-item panel-list-item-last flex items-center gap-2" style="color: hsl(var(--white66)); opacity: 0.88; transform: scale(0.96); transform-origin: left;">
+            <div class="panel-list-item panel-list-item-last flex items-center gap-2" style="color: hsl(var(--white66)); opacity: 0.85; transform: scale(0.96); transform-origin: left;">
               <svg class="security-check flex-shrink-0" width="14" height="10" viewBox="0 0 18 12" fill="none">
                 <path d="M6.2 11.2L0.7 5.7L6.2 10.95L16.7 0.7L6.2 11.2Z" stroke="hsl(var(--blurpleColor))" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
@@ -794,7 +791,7 @@ function toggleReleaseNotesExpanded(id) {
       <SocialTabs
         app={app}
         version={latestRelease?.version}
-        mainEventIds={[app?.id, latestRelease?.id, ...releases.map(r => r.id)].filter(Boolean)}
+        mainEventIds={[app?.id, latestRelease?.id].filter(Boolean)}
         {publisherProfile}
         getAppSlug={(p, d) => (app ? (app.naddr || encodeAppNaddr(p, d)) : "")}
         pubkeyToNpub={(pk) => nip19.npubEncode(pk)}
@@ -820,12 +817,9 @@ function toggleReleaseNotesExpanded(id) {
         onZapReceived={() => {
           function refetchZapsAndThreads() {
             loadZaps().then(async () => {
-              mergeZapsIntoComments();
               const mainFeedZapIds = zaps.filter((z) => !z.zappedEventId).map((z) => z.id);
               const allCommentIds = await loadCommentReplies();
-              // Get all release IDs to refetch their zaps
-              const allReleaseIds = releases.flatMap((rel) => [rel.id, ...(rel.artifacts ?? [])]);
-              loadZapsByMainFeedIds([...allCommentIds, ...mainFeedZapIds, ...allReleaseIds]);
+              loadZapsByMainFeedIds([...allCommentIds, ...mainFeedZapIds]);
             });
           }
           refetchZapsAndThreads();
@@ -973,99 +967,18 @@ function toggleReleaseNotesExpanded(id) {
       </Modal>
     {/if}
 
-    <!-- Security Modal -->
+    <!-- Security Modal (simple: header + coming soon) -->
     {#if app}
       <Modal
         bind:open={securityModalOpen}
         ariaLabel="Security"
         maxHeight={90}
-        fillHeight={true}
         class="security-modal"
       >
         <div class="security-modal-inner">
           <div class="security-modal-header">
             <h2 class="text-display text-4xl text-foreground text-center mb-3">Security</h2>
-            {#if app.repository || app.url}
-              <div class="security-modal-app-info">
-                {#if app.repository}
-                  <div class="release-meta-row">
-                    <span class="meta-label">Repository</span>
-                    <a href={app.repository} target="_blank" rel="noopener noreferrer" class="meta-link">{app.repository}</a>
-                  </div>
-                {/if}
-                {#if app.url}
-                  <div class="release-meta-row">
-                    <span class="meta-label">Website</span>
-                    <a href={app.url} target="_blank" rel="noopener noreferrer" class="meta-link">{app.url}</a>
-                  </div>
-                {/if}
-              </div>
-            {/if}
-          </div>
-          <div class="releases-modal-divider"></div>
-          <div class="security-modal-content">
-            <div class="security-criteria">
-              <!-- 1. Published by Developer (check) or Published by Indexer (line) -->
-              <div class="security-criteria-item">
-                <div class="flex items-center gap-2" style="color: hsl(var(--white66));">
-                  {#if publishedByDeveloper}
-                    <svg class="security-check flex-shrink-0" width="14" height="10" viewBox="0 0 18 12" fill="none">
-                      <path d="M6.2 11.2L0.7 5.7L6.2 10.95L16.7 0.7L6.2 11.2Z" stroke="hsl(var(--blurpleColor))" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                    <span class="text-sm font-medium">Published by Developer</span>
-                  {:else}
-                    <span class="security-line flex-shrink-0" aria-hidden="true"></span>
-                    <span class="text-sm font-medium">Published by Indexer</span>
-                  {/if}
-                </div>
-                <p class="security-criteria-desc">
-                  {#if publishedByDeveloper}
-                    This app is published directly by its developer, ensuring authenticity.
-                  {:else}
-                    This app is indexed by a third-party catalog. Verify the source before installing.
-                  {/if}
-                </p>
-              </div>
-
-              <!-- 2. Open source (check) or Closed-source (line) -->
-              <div class="security-criteria-item">
-                <div class="flex items-center gap-2" style="color: hsl(var(--white66)); opacity: 0.92; transform: scale(0.98); transform-origin: left;">
-                  {#if hasRepository}
-                    <svg class="security-check flex-shrink-0" width="14" height="10" viewBox="0 0 18 12" fill="none">
-                      <path d="M6.2 11.2L0.7 5.7L6.2 10.95L16.7 0.7L6.2 11.2Z" stroke="hsl(var(--blurpleColor))" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                    <span class="text-sm font-medium">Open source</span>
-                  {:else}
-                    <span class="security-line flex-shrink-0" aria-hidden="true"></span>
-                    <span class="text-sm font-medium">Closed-source</span>
-                  {/if}
-                </div>
-                <p class="security-criteria-desc">
-                  {#if hasRepository}
-                    Source code is publicly available for review and audit.
-                  {:else}
-                    Source code is not publicly available. Use with caution.
-                  {/if}
-                </p>
-              </div>
-
-              <!-- 3. Trusted Catalog: always for all apps -->
-              <div class="security-criteria-item">
-                <div class="flex items-center gap-2" style="color: hsl(var(--white66)); opacity: 0.88; transform: scale(0.96); transform-origin: left;">
-                  <svg class="security-check flex-shrink-0" width="14" height="10" viewBox="0 0 18 12" fill="none">
-                    <path d="M6.2 11.2L0.7 5.7L6.2 10.95L16.7 0.7L6.2 11.2Z" stroke="hsl(var(--blurpleColor))" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
-                  <span class="text-sm font-medium">Trusted Catalog</span>
-                </div>
-                <p class="security-criteria-desc">
-                  This app is listed in the official Zapstore catalog, which follows quality standards.
-                </p>
-              </div>
-            </div>
-
-            <div class="security-modal-footer">
-              <p class="text-sm text-center" style="color: hsl(var(--white66));">More Security metrics and tooling coming soon.</p>
-            </div>
+            <p class="text-sm text-center" style="color: hsl(var(--white66));">More Security metrics and tooling coming soon.</p>
           </div>
         </div>
       </Modal>
@@ -1150,14 +1063,9 @@ function toggleReleaseNotesExpanded(id) {
 
   .security-modal-inner {
     padding: 0;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    height: 100%;
   }
 
   .security-modal-header {
-    flex-shrink: 0;
     padding: 1rem 1.5rem;
   }
 
@@ -1165,57 +1073,6 @@ function toggleReleaseNotesExpanded(id) {
     .security-modal-header {
       padding: 1.5rem 2rem;
     }
-  }
-
-  .security-modal-app-info {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem 1.25rem;
-    font-size: 0.875rem;
-    color: hsl(var(--white66));
-    justify-content: center;
-    margin-top: 1rem;
-  }
-
-  .security-modal-content {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    padding: 0.5rem 1.25rem 1rem;
-  }
-
-  @media (min-width: 768px) {
-    .security-modal-content {
-      padding: 0.75rem 1.5rem 1.25rem;
-    }
-  }
-
-  .security-criteria {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-    flex: 1;
-  }
-
-  .security-criteria-item {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .security-criteria-desc {
-    font-size: 0.875rem;
-    line-height: 1.5;
-    color: hsl(var(--white66));
-    margin: 0;
-    padding-left: 1.75rem;
-  }
-
-  .security-modal-footer {
-    padding-top: 1rem;
-    margin-top: auto;
   }
 
   .panel-releases {
@@ -1328,6 +1185,7 @@ function toggleReleaseNotesExpanded(id) {
 
   .screenshot-thumb {
     width: 80px;
+    aspect-ratio: 9 / 19.5;
     border-radius: 12px;
     background-color: hsl(var(--gray33));
     border: 0.33px solid hsl(var(--white16));
@@ -1338,6 +1196,24 @@ function toggleReleaseNotesExpanded(id) {
       width: 96px;
       border-radius: 16px;
     }
+  }
+
+  .screenshot-skeleton {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+  }
+
+  .screenshot-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .screenshot-img.loaded {
+    opacity: 1;
   }
 
   /* Description */

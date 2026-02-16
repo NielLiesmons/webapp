@@ -79,6 +79,12 @@ const config = {
 			$stores: './src/lib/stores',
 			$nostr: './src/lib/nostr'
 		}
+	},
+
+	onwarn: (warning, handler) => {
+		if (warning.code?.startsWith('a11y_')) return;
+		if (warning.code === 'css_unused_selector') return;
+		handler(warning);
 	}
 };
 

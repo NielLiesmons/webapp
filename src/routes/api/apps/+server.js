@@ -1,25 +1,32 @@
+/**
+ * /api/apps — Paginated apps ordered by latest release date.
+ *
+ * Returns app events (kind 32267) AND their latest release events (kind 30063),
+ * sorted by release created_at. The client needs both: apps for display,
+ * releases for liveQuery ordering in Dexie.
+ *
+ * Query params:
+ *   limit  — page size (default APPS_PAGE_SIZE, max APPS_PAGE_SIZE × 3)
+ *   cursor — release created_at cursor from previous page (omit for first page)
+ *
+ * Response JSON: { events: NostrEvent[], cursor: number|null, hasMore: boolean }
+ */
 import { json } from '@sveltejs/kit';
-import { fetchAppsByReleases } from '$lib/nostr/server';
-
-const DEFAULT_LIMIT = 24;
-const MAX_LIMIT = 80;
-
-function parseLimit(raw) {
-	const limit = Number(raw);
-	if (!Number.isFinite(limit) || limit <= 0) return DEFAULT_LIMIT;
-	return Math.min(Math.floor(limit), MAX_LIMIT);
-}
-
-function parseCursor(raw) {
-	if (!raw) return undefined;
-	const cursor = Number(raw);
-	if (!Number.isFinite(cursor)) return undefined;
-	return Math.floor(cursor);
-}
+import { fetchAppsSortedByRelease } from '$lib/nostr/server.js';
+import { APPS_PAGE_SIZE } from '$lib/constants.js';
 
 export async function GET({ url }) {
-	const limit = parseLimit(url.searchParams.get('limit'));
-	const cursor = parseCursor(url.searchParams.get('cursor'));
-	const { apps, nextCursor, seedEvents } = await fetchAppsByReleases(limit, cursor);
-	return json({ apps, nextCursor, seedEvents });
+	const rawLimit = parseInt(url.searchParams.get('limit') || String(APPS_PAGE_SIZE), 10);
+	const limit = Math.max(1, Math.min(isNaN(rawLimit) ? APPS_PAGE_SIZE : rawLimit, APPS_PAGE_SIZE * 3));
+
+	const rawCursor = url.searchParams.get('cursor');
+	const until = rawCursor ? parseInt(rawCursor, 10) : undefined;
+
+	const result = fetchAppsSortedByRelease(limit, isNaN(until) ? undefined : until);
+
+	return json(result, {
+		headers: {
+			'Cache-Control': 'public, max-age=60, stale-while-revalidate=120'
+		}
+	});
 }

@@ -1,6 +1,5 @@
 <script>
-  import { hexToColor, stringToColor } from "$lib/utils/color.js";
-  import { toFirstPartyImageUrl } from "$lib/utils/media-proxy.js";
+  import { stringToColor } from "$lib/utils/color.js";
   import SkeletonLoader from "./SkeletonLoader.svelte";
 
   /**
@@ -73,7 +72,7 @@
   let imageError = false;
 
   // Reactive computations
-  $: resolvedIconUrl = toFirstPartyImageUrl(iconUrl);
+  $: resolvedIconUrl = typeof iconUrl === "string" ? iconUrl.trim() : (iconUrl ?? null);
   $: resolvedSize = sizeMap[size] || sizeMap.md;
   $: borderRadius = getBorderRadius(resolvedSize);
   $: fontSize = Math.round(resolvedSize * fontSizeRatio);

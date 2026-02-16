@@ -12,7 +12,11 @@ import { page } from "$app/stores";
 import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { beforeNavigate } from "$app/navigation";
-import { fetchProfile, fetchProfilesBatch, queryEvent, queryCommentsFromStore, fetchComments, encodeAppNaddr, encodeStackNaddr, parseProfile, parseComment, publishComment, } from "$lib/nostr";
+import { fetchProfile, fetchProfilesBatch, queryEvent, queryEvents, queryCommentsFromStore, fetchComments, encodeAppNaddr, encodeStackNaddr, parseProfile, parseComment, publishComment, decodeNaddr, parseAppStack, parseApp, } from "$lib/nostr";
+import { fetchFromRelays } from "$lib/nostr/service";
+import { DEFAULT_CATALOG_RELAYS } from "$lib/config";
+import { EVENT_KINDS, PLATFORM_FILTER } from "$lib/config";
+import { isOnline } from "$lib/stores/online.svelte.js";
 import { nip19 } from "nostr-tools";
 import { wheelScroll } from "$lib/actions/wheelScroll.js";
 import AppSmallCard from "$lib/components/cards/AppSmallCard.svelte";
@@ -110,11 +114,35 @@ onMount(() => {
 async function loadStack() {
     try {
         error = null;
-        if (!data.stack) {
+        let foundStack = data.stack;
+        // Client-side navigation / offline: query Dexie if no server data
+        const pointer = browser ? decodeNaddr($page.params.naddr) : null;
+        if (!foundStack && pointer) {
+            const event = await queryEvent({
+                kinds: [EVENT_KINDS.APP_STACK],
+                authors: [pointer.pubkey],
+                '#d': [pointer.identifier]
+            });
+            if (event)
+                foundStack = parseAppStack(event);
+        }
+        // Not in cache or Dexie: try relays once before showing 404 (online only)
+        if (!foundStack && browser && pointer && isOnline()) {
+            loading = true;
+            const events = await fetchFromRelays(DEFAULT_CATALOG_RELAYS, {
+                kinds: [EVENT_KINDS.APP_STACK],
+                authors: [pointer.pubkey],
+                '#d': [pointer.identifier],
+                ...PLATFORM_FILTER,
+                limit: 1
+            });
+            if (events.length > 0)
+                foundStack = parseAppStack(events[0]);
+        }
+        if (!foundStack) {
             error = data.error ?? "Stack not found";
             return;
         }
-        const foundStack = data.stack;
         persistEventsInBackground(data.seedEvents ?? []);
         // Fetch creator profile
         let creator = null;
@@ -176,7 +204,17 @@ async function loadStack() {
             profiles = nextProfiles;
         }
         loadCommentsForStack(foundStack.pubkey, foundStack.dTag);
-        apps = data.apps ?? [];
+        // Resolve apps: use server data or query Dexie
+        if (data.apps?.length > 0) {
+            apps = data.apps;
+        }
+        else if (foundStack.appRefs?.length > 0) {
+            const ids = foundStack.appRefs.filter((r) => r.kind === 32267).map((r) => r.identifier);
+            if (ids.length > 0) {
+                const events = await queryEvents({ kinds: [32267], '#d': ids });
+                apps = events.map(parseApp);
+            }
+        }
     }
     catch (err) {
         console.error("Error loading stack:", err);
@@ -186,7 +224,6 @@ async function loadStack() {
         loading = false;
     }
 }
-const EVENT_KINDS = { APP: 32267, APP_STACK: 30267 };
 async function loadCommentsForStack(pubkey, dTag) {
     const hadCached = comments.length > 0;
     if (!hadCached)
